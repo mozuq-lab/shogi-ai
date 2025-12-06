@@ -1,0 +1,3 @@
+[submodule "external/shogi-cli"]
+	path = external/shogi-cli
+	url = git@github.com:mozuq-lab/shogi-cli.git
