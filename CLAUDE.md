@@ -18,7 +18,7 @@ Value Network（局面→評価値）のみを実装対象とし、ポリシー�
 
 - [x] Phase 0: 環境構築
 - [x] Phase 1: 教師データ生成
-- [ ] Phase 2: モデル設計・実装
+- [x] Phase 2: モデル設計・実装
 - [ ] Phase 3: 学習・オフライン評価（Windows）
 - [ ] Phase 4: エンジン組み込み・対局テスト
 
@@ -38,12 +38,18 @@ shogi-ai/
 ├── shogi/                  # 将棋関連ユーティリティ
 │   ├── __init__.py
 │   └── usi_engine.py       # USIエンジンラッパー ✓
-├── models/                 # モデル定義
-│   └── value_transformer.py  # (Phase 2で実装)
+├── models/                 # モデル定義 ✓
+│   ├── __init__.py
+│   ├── value_transformer.py  # Transformerモデル
+│   ├── sfen_parser.py        # SFENパーサー
+│   └── dataset.py            # PyTorch Dataset
+├── tests/                  # テスト ✓
+│   └── test_models.py
 ├── data/raw/               # 生成データ (.gitignore対象)
 ├── tools/
 │   └── gen_dataset.py      # データ生成スクリプト ✓
-├── train/                  # 学習スクリプト (Phase 3で実装)
+├── train/                  # 学習スクリプト ✓
+│   └── train.py            # Value Network学習
 ├── engine/                 # USIエンジン (Phase 4で実装)
 ├── scripts/
 │   └── usi_test.py         # USI疎通確認スクリプト ✓
@@ -135,45 +141,104 @@ echo -e "usi\nisready\nposition startpos\ngo depth 10\nquit" | ./YaneuraOu-mac
 
 ※ Windows環境ではAVX2版を使用（AVX512VNNI版はRyzen 9000シリーズ非対応）
 
-## Phase 2: モデル設計（次のタスク）
-
-### 入力表現
-
-- 81マスをトークンとして扱う
-- 各トークン: 駒種（空、歩〜玉、成駒）× 先後 の埋め込み
-- 手番埋め込みを全トークンに加算
-
-### 出力
-
-- スカラー値 [-1, 1]（勝率近似）
-
-### アーキテクチャ（初期案）
-
-```
-d_model: 256
-n_heads: 4
-n_layers: 4
-ffn_dim: 512
-```
-
-### 評価値の正規化
+### Value Network (`models/`)
 
 ```python
-import math
+from models import ValueTransformer, ShogiValueDataset, collate_fn
+from torch.utils.data import DataLoader
 
-def normalize_cp(cp: int, scale: float = 1200.0) -> float:
-    """centipawnを[-1, 1]に正規化"""
-    return math.tanh(cp / scale)
+# モデル作成
+model = ValueTransformer(
+    d_model=256,
+    n_heads=4,
+    n_layers=4,
+    ffn_dim=512,
+    dropout=0.1,
+)
+# パラメータ数: 約215万
+
+# データセット読み込み
+dataset = ShogiValueDataset("data/raw/hao_trial_500_depth10.jsonl")
+loader = DataLoader(dataset, batch_size=64, shuffle=True, collate_fn=collate_fn)
+
+# 推論
+batch = next(iter(loader))
+output = model(batch["board"], batch["hand"], batch["turn"])  # (batch, 1), [-1, 1]
 ```
 
-## Phase 3: 学習（Windows環境）
+#### 入力表現
 
-### ハイパーパラメータ（初期案）
+- 81マス（盤面）+ 14トークン（持ち駒）= 95トークン
+- 駒種埋め込み（29種: 空、先手駒14種、後手駒14種）
+- 持ち駒は駒種埋め込み + 枚数埋め込み
+- 手番埋め込みを全トークンに加算
+
+#### 出力
+
+- スカラー値 [-1, 1]（勝率近似、tanh正規化）
+
+#### 評価値の正規化
+
+```python
+from models import normalize_cp, denormalize_cp
+
+# centipawn → [-1, 1]
+value = normalize_cp(500)   # → 0.395
+
+# [-1, 1] → centipawn
+cp = denormalize_cp(0.395)  # → 500
+```
+
+## Phase 3: 学習
+
+### 学習スクリプト (`train/train.py`)
+
+```bash
+# Mac環境での動作確認（小規模）
+PYTHONPATH=. python train/train.py \
+    --data data/raw/hao_trial_500_depth10.jsonl \
+    --epochs 5 --batch-size 64 --device auto
+
+# Windows環境での本格学習
+PYTHONPATH=. python train/train.py \
+    --data data/raw/large_dataset.jsonl \
+    --epochs 100 --batch-size 512 --device cuda
+
+# 学習再開
+PYTHONPATH=. python train/train.py \
+    --data data/raw/large_dataset.jsonl \
+    --resume checkpoints/epoch_0050.pt
+```
+
+#### 主なオプション
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--data` | 必須 | データファイルパス |
+| `--epochs` | 100 | エポック数 |
+| `--batch-size` | 512 | バッチサイズ |
+| `--lr` | 3e-4 | 学習率 |
+| `--device` | auto | デバイス（auto/cuda/mps/cpu） |
+| `--output-dir` | checkpoints | 出力ディレクトリ |
+| `--resume` | - | 再開するチェックポイント |
+| `--val-split` | 0.1 | 検証データ割合 |
+
+#### 出力ファイル
+
+```text
+checkpoints/
+├── best.pt           # ベストモデル（最小val_loss）
+├── epoch_XXXX.pt     # 定期保存（--save-every間隔）
+├── final.pt          # 最終モデル
+└── log_YYYYMMDD_HHMMSS.json  # 学習ログ
+```
+
+### ハイパーパラメータ
 
 - データセット: 10万〜100万局面
 - 訓練:バリデーション = 9:1
 - Optimizer: AdamW
-- 学習率: 1e-4〜3e-4
+- 学習率: 3e-4（5エポックwarmup後、コサインアニーリング）
 - バッチサイズ: 512〜1024
 - 損失関数: MSE
 
