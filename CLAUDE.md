@@ -28,7 +28,8 @@ Value Network（局面→評価値）のみを実装対象とし、ポリシー�
 shogi-ai/
 ├── external/shogi-cli/     # 水匠5 (git submodule)
 │   └── suisho5/
-│       ├── YaneuraOu-mac   # エンジン本体
+│       ├── YaneuraOu-mac   # Mac用エンジン
+│       ├── YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe  # Windows用エンジン
 │       └── eval/nn.bin     # 評価関数
 ├── shogi/                  # 将棋関連ユーティリティ
 │   ├── __init__.py
@@ -100,12 +101,15 @@ cd external/shogi-cli/suisho5
 echo -e "usi\nisready\nposition startpos\ngo depth 10\nquit" | ./YaneuraOu-mac
 ```
 
-### パフォーマンス (Mac Apple Silicon)
+### パフォーマンス
 
-| スレッド数 | nps |
-|-----------|-----|
-| 1 | 約 1.0M |
-| 8 | 約 4.9M |
+| 環境 | スレッド数 | nps |
+|------|-----------|-----|
+| Mac Apple Silicon | 1 | 約 1.0M |
+| Mac Apple Silicon | 8 | 約 4.9M |
+| Windows Ryzen 7 9700X (AVX2) | 1 | 約 2.0M |
+
+※ Windows環境ではAVX2版を使用（AVX512VNNI版はRyzen 9000シリーズ非対応）
 
 ## Phase 2: モデル設計（次のタスク）
 

@@ -226,6 +226,18 @@ class USIEngine:
 
 
 def get_default_engine_path() -> Path:
-    """デフォルトのエンジンパスを取得"""
+    """デフォルトのエンジンパスを取得
+
+    OSに応じて適切なバイナリを返す:
+    - Mac: YaneuraOu-mac
+    - Windows: YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe
+    """
+    import platform
+
     base_dir = Path(__file__).parent.parent
-    return base_dir / "external" / "shogi-cli" / "suisho5" / "YaneuraOu-mac"
+    suisho_dir = base_dir / "external" / "shogi-cli" / "suisho5"
+
+    if platform.system() == "Windows":
+        return suisho_dir / "YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe"
+    else:
+        return suisho_dir / "YaneuraOu-mac"

@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import subprocess
 import re
+import sys
 from pathlib import Path
+
+# プロジェクトルートをパスに追加
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from shogi import get_default_engine_path
 
 
 def get_engine_path() -> Path:
     """エンジンのパスを取得"""
-    script_dir = Path(__file__).parent.parent
-    return script_dir / "external" / "shogi-cli" / "suisho5" / "YaneuraOu-mac"
+    return get_default_engine_path()
 
 
 def run_usi_command(commands: list[str], timeout: int = 30) -> str:
