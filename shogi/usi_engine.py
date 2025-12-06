@@ -165,6 +165,27 @@ class USIEngine:
 
         return self._parse_search_result(lines)
 
+    def go_random(self) -> SearchResult:
+        """ランダムな合法手を選択
+
+        Returns:
+            SearchResult: ランダムに選ばれた手（score_cpは0）
+        """
+        self._send_command("go random")
+
+        # bestmoveを待つ
+        lines = self._wait_for_response("bestmove", timeout=30.0)
+
+        result = SearchResult(bestmove="resign", score_cp=0)
+        for line in lines:
+            if line.startswith("bestmove"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    result.bestmove = parts[1]
+                break
+
+        return result
+
     def _parse_search_result(self, lines: list[str]) -> SearchResult:
         """探索結果をパース"""
         result = SearchResult(bestmove="resign")
@@ -225,19 +246,36 @@ class USIEngine:
         self.quit()
 
 
-def get_default_engine_path() -> Path:
-    """デフォルトのエンジンパスを取得
+def get_engine_path(engine: str = "suisho5") -> Path:
+    """エンジンのパスを取得
+
+    Args:
+        engine: エンジン名 ("suisho5" または "hao")
+
+    Returns:
+        エンジンの実行ファイルパス
 
     OSに応じて適切なバイナリを返す:
-    - Mac: YaneuraOu-mac
+    - Mac: YaneuraOu-mac (suisho5のみ)
     - Windows: YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe
     """
     import platform
 
     base_dir = Path(__file__).parent.parent
-    suisho_dir = base_dir / "external" / "shogi-cli" / "suisho5"
 
-    if platform.system() == "Windows":
-        return suisho_dir / "YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe"
+    if engine == "hao":
+        engine_dir = base_dir / "external" / "shogi-cli" / "hao"
+        # haoはWindows用のみ
+        return engine_dir / "YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe"
     else:
-        return suisho_dir / "YaneuraOu-mac"
+        # suisho5 (デフォルト)
+        engine_dir = base_dir / "external" / "shogi-cli" / "suisho5"
+        if platform.system() == "Windows":
+            return engine_dir / "YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe"
+        else:
+            return engine_dir / "YaneuraOu-mac"
+
+
+def get_default_engine_path() -> Path:
+    """デフォルトのエンジンパスを取得（後方互換性のため）"""
+    return get_engine_path("suisho5")

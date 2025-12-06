@@ -17,7 +17,7 @@ from typing import Optional
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shogi.usi_engine import USIEngine, get_default_engine_path
+from shogi.usi_engine import USIEngine, get_engine_path, get_default_engine_path
 
 
 @dataclass
@@ -40,6 +40,7 @@ class SelfPlayGenerator:
         movetime: Optional[int] = None,
         max_ply: int = 256,
         use_book: bool = False,
+        random_opening_ply: int = 0,
     ):
         """
         Args:
@@ -48,12 +49,14 @@ class SelfPlayGenerator:
             movetime: 1手あたりの思考時間（ミリ秒）
             max_ply: 最大手数
             use_book: 定跡使用
+            random_opening_ply: 序盤のランダム手数（0の場合はランダム化しない）
         """
         self.engine_path = engine_path
         self.depth = depth
         self.movetime = movetime
         self.max_ply = max_ply
         self.use_book = use_book
+        self.random_opening_ply = random_opening_ply
 
         # depthとmovetimeのどちらも指定されていない場合はdepth=10をデフォルトに
         if self.depth is None and self.movetime is None:
@@ -83,8 +86,11 @@ class SelfPlayGenerator:
                 # 局面を設定
                 engine.set_position(moves=moves if moves else None)
 
-                # 探索
-                search_result = engine.go(depth=self.depth, movetime=self.movetime)
+                # 探索（序盤はランダム、それ以降は通常探索）
+                if ply < self.random_opening_ply:
+                    search_result = engine.go_random()
+                else:
+                    search_result = engine.go(depth=self.depth, movetime=self.movetime)
 
                 # 投了チェック
                 if search_result.bestmove in ("resign", "win"):
@@ -157,6 +163,7 @@ def generate_dataset(
     movetime: Optional[int] = None,
     max_ply: int = 256,
     use_book: bool = False,
+    random_opening_ply: int = 0,
 ) -> int:
     """データセットを生成
 
@@ -168,6 +175,7 @@ def generate_dataset(
         movetime: 思考時間（ミリ秒）
         max_ply: 最大手数
         use_book: 定跡使用
+        random_opening_ply: 序盤のランダム手数
 
     Returns:
         生成した局面数
@@ -178,6 +186,7 @@ def generate_dataset(
         movetime=movetime,
         max_ply=max_ply,
         use_book=use_book,
+        random_opening_ply=random_opening_ply,
     )
 
     total_positions = 0
@@ -211,7 +220,9 @@ def main():
     parser.add_argument("--movetime", "-t", type=int, default=None, help="思考時間(ms)（指定するとdepthより優先）")
     parser.add_argument("--max-ply", type=int, default=256, help="最大手数")
     parser.add_argument("--use-book", action="store_true", help="定跡使用")
-    parser.add_argument("--engine", type=str, default=None, help="エンジンパス")
+    parser.add_argument("--random-opening", "-r", type=int, default=8, help="序盤のランダム手数（デフォルト: 8）")
+    parser.add_argument("--engine", type=str, default=None, help="エンジンパス（直接指定）")
+    parser.add_argument("--engine-type", type=str, default="suisho5", choices=["suisho5", "hao"], help="エンジン種類（デフォルト: suisho5）")
 
     args = parser.parse_args()
 
@@ -221,7 +232,10 @@ def main():
         args.output = f"data/raw/positions_{timestamp}.jsonl"
 
     # エンジンパス
-    engine_path = Path(args.engine) if args.engine else get_default_engine_path()
+    if args.engine:
+        engine_path = Path(args.engine)
+    else:
+        engine_path = get_engine_path(args.engine_type)
 
     if not engine_path.exists():
         print(f"Error: Engine not found: {engine_path}")
@@ -242,6 +256,7 @@ def main():
         print(f"  Depth: {depth}")
     print(f"  Max ply: {args.max_ply}")
     print(f"  Use book: {args.use_book}")
+    print(f"  Random opening: {args.random_opening} ply")
     print(f"  Output: {output_path}")
     print()
 
@@ -253,6 +268,7 @@ def main():
         movetime=movetime,
         max_ply=args.max_ply,
         use_book=args.use_book,
+        random_opening_ply=args.random_opening,
     )
 
     print(f"\nDone! Total positions: {total}")
