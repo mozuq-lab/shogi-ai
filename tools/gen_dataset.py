@@ -220,7 +220,7 @@ def main():
     parser.add_argument("--movetime", "-t", type=int, default=None, help="思考時間(ms)（指定するとdepthより優先）")
     parser.add_argument("--max-ply", type=int, default=256, help="最大手数")
     parser.add_argument("--use-book", action="store_true", help="定跡使用")
-    parser.add_argument("--random-opening", "-r", type=int, default=8, help="序盤のランダム手数（デフォルト: 8）")
+    parser.add_argument("--random-opening", "-r", type=int, default=32, help="序盤のランダム手数（デフォルト: 32）")
     parser.add_argument("--engine", type=str, default=None, help="エンジンパス（直接指定）")
     parser.add_argument("--engine-type", type=str, default="suisho5", choices=["suisho5", "hao"], help="エンジン種類（デフォルト: suisho5）")
 
