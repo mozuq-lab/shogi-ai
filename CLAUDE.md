@@ -246,15 +246,22 @@ checkpoints/
 
 ## Phase 4: USIエンジン
 
-### USIエンジンの起動 (`engine/usi_server.py`)
+### USIエンジンの起動
 
 ```bash
-# 学習済みモデルでUSIエンジンを起動
+# ラッパースクリプトで起動（将棋GUIから登録する場合はこちら）
+./shogi-ai-engine.sh
+
+# 直接起動
 PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt
 
 # デバイス指定
 PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt --device cpu
 ```
+
+#### 将棋GUIでの使用
+
+将棋所やShogiGUIなどのUSI対応GUIで `shogi-ai-engine.sh` をエンジンとして登録すると対局可能。
 
 #### 対応USIコマンド
 
