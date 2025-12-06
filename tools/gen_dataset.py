@@ -17,7 +17,7 @@ from typing import Optional
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shogi.usi_engine import USIEngine, get_engine_path, get_default_engine_path
+from shogi_utils.usi_engine import USIEngine, get_engine_path, get_default_engine_path
 
 
 @dataclass

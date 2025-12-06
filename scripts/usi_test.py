@@ -14,7 +14,7 @@ from pathlib import Path
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shogi import get_default_engine_path
+from shogi_utils import get_default_engine_path
 
 
 def get_engine_path() -> Path:

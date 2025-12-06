@@ -19,8 +19,8 @@ Value Network（局面→評価値）のみを実装対象とし、ポリシー�
 - [x] Phase 0: 環境構築
 - [x] Phase 1: 教師データ生成
 - [x] Phase 2: モデル設計・実装
-- [ ] Phase 3: 学習・オフライン評価（Windows）
-- [ ] Phase 4: エンジン組み込み・対局テスト
+- [x] Phase 3: 学習スクリプト実装（本格学習はWindows環境で実施）
+- [x] Phase 4: エンジン組み込み（1手読み）
 
 ## ディレクトリ構成
 
@@ -35,7 +35,7 @@ shogi-ai/
 │       ├── YaneuraOu-mac   # Mac用エンジン
 │       ├── YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe  # Windows用エンジン
 │       └── eval/nn.bin     # 評価関数
-├── shogi/                  # 将棋関連ユーティリティ
+├── shogi_utils/            # 将棋関連ユーティリティ
 │   ├── __init__.py
 │   └── usi_engine.py       # USIエンジンラッパー ✓
 ├── models/                 # モデル定義 ✓
@@ -50,7 +50,9 @@ shogi-ai/
 │   └── gen_dataset.py      # データ生成スクリプト ✓
 ├── train/                  # 学習スクリプト ✓
 │   └── train.py            # Value Network学習
-├── engine/                 # USIエンジン (Phase 4で実装)
+├── engine/                 # USIエンジン ✓
+│   ├── evaluator.py        # モデル評価器
+│   └── usi_server.py       # USIプロトコルサーバー
 ├── scripts/
 │   └── usi_test.py         # USI疎通確認スクリプト ✓
 ├── env/
@@ -60,10 +62,10 @@ shogi-ai/
 
 ## 実装済み機能
 
-### USIエンジンラッパー (`shogi/usi_engine.py`)
+### USIエンジンラッパー (`shogi_utils/usi_engine.py`)
 
 ```python
-from shogi import USIEngine, get_engine_path, get_default_engine_path
+from shogi_utils import USIEngine, get_engine_path, get_default_engine_path
 
 # 水匠5を使用（デフォルト）
 with USIEngine(get_default_engine_path()) as engine:
@@ -241,6 +243,58 @@ checkpoints/
 - 学習率: 3e-4（5エポックwarmup後、コサインアニーリング）
 - バッチサイズ: 512〜1024
 - 損失関数: MSE
+
+## Phase 4: USIエンジン
+
+### USIエンジンの起動 (`engine/usi_server.py`)
+
+```bash
+# 学習済みモデルでUSIエンジンを起動
+PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt
+
+# デバイス指定
+PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt --device cpu
+```
+
+#### 対応USIコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `usi` | エンジン情報を返す |
+| `isready` | モデルを読み込み、`readyok`を返す |
+| `position startpos [moves ...]` | 初期局面から指定の手を適用 |
+| `position sfen <sfen> [moves ...]` | SFEN局面から指定の手を適用 |
+| `go` | 最善手を探索（1手読み） |
+| `quit` | 終了 |
+
+#### 評価器 (`engine/evaluator.py`)
+
+```python
+from engine.evaluator import Evaluator
+
+# 評価器を初期化
+evaluator = Evaluator("checkpoints/best.pt", device="auto")
+
+# SFEN文字列で評価
+score = evaluator.evaluate_sfen("startpos moves 7g7f 3c3d")
+
+# python-shogiのBoardで評価
+import shogi
+board = shogi.Board()
+score = evaluator.evaluate_board(board)
+
+# 最善手を探索（1手読み）
+best_move, score = evaluator.find_best_move(board)
+```
+
+### 依存ライブラリ
+
+- `python-shogi`: 合法手生成に使用
+
+### 制限事項
+
+- 現在は1手読みのみ（各合法手の評価値を比較）
+- 探索アルゴリズム（αβ等）は未実装
 
 ## コーディング規約
 

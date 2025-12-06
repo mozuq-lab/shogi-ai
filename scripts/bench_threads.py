@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shogi import USIEngine, get_default_engine_path
+from shogi_utils import USIEngine, get_default_engine_path
 
 # SFEN: 中盤の複雑な局面
 SFEN = "ln1gkg1nl/6sb1/2pp1p1pp/pr2p4/1p5P1/2P1P1P2/PPBP1P2P/2G1S2R1/LN2KG1NL b - 1"
