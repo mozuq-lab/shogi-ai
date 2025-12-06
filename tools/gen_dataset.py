@@ -36,21 +36,28 @@ class SelfPlayGenerator:
     def __init__(
         self,
         engine_path: Path,
-        movetime: int = 500,
+        depth: Optional[int] = None,
+        movetime: Optional[int] = None,
         max_ply: int = 256,
         use_book: bool = False,
     ):
         """
         Args:
             engine_path: エンジンパス
+            depth: 探索深さ（depthとmovetimeのどちらか一方を指定）
             movetime: 1手あたりの思考時間（ミリ秒）
             max_ply: 最大手数
             use_book: 定跡使用
         """
         self.engine_path = engine_path
+        self.depth = depth
         self.movetime = movetime
         self.max_ply = max_ply
         self.use_book = use_book
+
+        # depthとmovetimeのどちらも指定されていない場合はdepth=10をデフォルトに
+        if self.depth is None and self.movetime is None:
+            self.depth = 10
 
     def play_game(self, game_id: int) -> list[PositionRecord]:
         """1対局を行い、局面データを収集
@@ -77,7 +84,7 @@ class SelfPlayGenerator:
                 engine.set_position(moves=moves if moves else None)
 
                 # 探索
-                search_result = engine.go(movetime=self.movetime)
+                search_result = engine.go(depth=self.depth, movetime=self.movetime)
 
                 # 投了チェック
                 if search_result.bestmove in ("resign", "win"):
@@ -146,7 +153,8 @@ def generate_dataset(
     num_games: int,
     output_path: Path,
     engine_path: Path,
-    movetime: int = 500,
+    depth: Optional[int] = None,
+    movetime: Optional[int] = None,
     max_ply: int = 256,
     use_book: bool = False,
 ) -> int:
@@ -156,6 +164,7 @@ def generate_dataset(
         num_games: 対局数
         output_path: 出力ファイルパス
         engine_path: エンジンパス
+        depth: 探索深さ
         movetime: 思考時間（ミリ秒）
         max_ply: 最大手数
         use_book: 定跡使用
@@ -165,6 +174,7 @@ def generate_dataset(
     """
     generator = SelfPlayGenerator(
         engine_path=engine_path,
+        depth=depth,
         movetime=movetime,
         max_ply=max_ply,
         use_book=use_book,
@@ -197,7 +207,8 @@ def main():
     parser = argparse.ArgumentParser(description="教師データ生成")
     parser.add_argument("--num-games", "-n", type=int, default=1, help="対局数")
     parser.add_argument("--output", "-o", type=str, default=None, help="出力ファイル")
-    parser.add_argument("--movetime", "-t", type=int, default=500, help="思考時間(ms)")
+    parser.add_argument("--depth", "-d", type=int, default=10, help="探索深さ（デフォルト: 10）")
+    parser.add_argument("--movetime", "-t", type=int, default=None, help="思考時間(ms)（指定するとdepthより優先）")
     parser.add_argument("--max-ply", type=int, default=256, help="最大手数")
     parser.add_argument("--use-book", action="store_true", help="定跡使用")
     parser.add_argument("--engine", type=str, default=None, help="エンジンパス")
@@ -218,10 +229,17 @@ def main():
 
     output_path = Path(args.output)
 
+    # movetimeが指定された場合はdepthを無効化
+    depth = None if args.movetime else args.depth
+    movetime = args.movetime
+
     print(f"Settings:")
     print(f"  Engine: {engine_path}")
     print(f"  Games: {args.num_games}")
-    print(f"  Movetime: {args.movetime}ms")
+    if movetime:
+        print(f"  Movetime: {movetime}ms")
+    else:
+        print(f"  Depth: {depth}")
     print(f"  Max ply: {args.max_ply}")
     print(f"  Use book: {args.use_book}")
     print(f"  Output: {output_path}")
@@ -231,7 +249,8 @@ def main():
         num_games=args.num_games,
         output_path=output_path,
         engine_path=engine_path,
-        movetime=args.movetime,
+        depth=depth,
+        movetime=movetime,
         max_ply=args.max_ply,
         use_book=args.use_book,
     )
