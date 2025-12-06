@@ -26,8 +26,12 @@ Value Network（局面→評価値）のみを実装対象とし、ポリシー�
 
 ```
 shogi-ai/
-├── external/shogi-cli/     # 水匠5 (git submodule)
-│   └── suisho5/
+├── external/shogi-cli/     # 将棋エンジン (git submodule)
+│   ├── suisho5/            # 水匠5
+│   │   ├── YaneuraOu-mac   # Mac用エンジン
+│   │   ├── YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe  # Windows用エンジン
+│   │   └── eval/nn.bin     # 評価関数
+│   └── hao/                # Hao
 │       ├── YaneuraOu-mac   # Mac用エンジン
 │       ├── YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe  # Windows用エンジン
 │       └── eval/nn.bin     # 評価関数
@@ -53,8 +57,9 @@ shogi-ai/
 ### USIエンジンラッパー (`shogi/usi_engine.py`)
 
 ```python
-from shogi import USIEngine, get_default_engine_path
+from shogi import USIEngine, get_engine_path, get_default_engine_path
 
+# 水匠5を使用（デフォルト）
 with USIEngine(get_default_engine_path()) as engine:
     engine.init_usi()
     engine.set_option("USI_OwnBook", False)
@@ -62,14 +67,19 @@ with USIEngine(get_default_engine_path()) as engine:
     engine.set_position(moves=["7g7f", "3c3d"])
     result = engine.go(depth=10)  # or movetime=500
     print(result.bestmove, result.score_cp)
+
+# Haoを使用
+with USIEngine(get_engine_path("hao")) as engine:
+    engine.init_usi()
+    # ...
 ```
 
 ### データ生成スクリプト (`tools/gen_dataset.py`)
 
-水匠5同士の自己対局で教師データを生成する。
+将棋エンジン同士の自己対局で教師データを生成する。
 
 ```bash
-# 深さ10で1対局（デフォルト）
+# 深さ10で1対局（デフォルト、水匠5使用）
 python tools/gen_dataset.py -n 1
 
 # 深さ15で10対局
@@ -77,7 +87,19 @@ python tools/gen_dataset.py -n 10 --depth 15 -o data/raw/depth15.jsonl
 
 # 時間指定（500ms）で生成
 python tools/gen_dataset.py -n 10 --movetime 500
+
+# Haoエンジンを使用
+python tools/gen_dataset.py -n 10 --engine-type hao
+python tools/gen_dataset.py -n 10 --depth 15 --engine-type hao -o data/raw/hao_depth15.jsonl
 ```
+
+#### エンジン選択
+
+| オプション | エンジン | 説明 |
+|-----------|---------|------|
+| `--engine-type suisho5` | 水匠5 | デフォルト |
+| `--engine-type hao` | Hao | 別の評価関数 |
+| `--engine /path/to/engine` | 任意 | パス直接指定 |
 
 #### 出力形式 (JSONL)
 

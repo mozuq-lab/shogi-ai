@@ -265,8 +265,10 @@ def get_engine_path(engine: str = "suisho5") -> Path:
 
     if engine == "hao":
         engine_dir = base_dir / "external" / "shogi-cli" / "hao"
-        # haoはWindows用のみ
-        return engine_dir / "YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe"
+        if platform.system() == "Windows":
+            return engine_dir / "YaneuraOu_NNUE_halfKP256-V830Git_AVX2.exe"
+        else:
+            return engine_dir / "YaneuraOu-mac"
     else:
         # suisho5 (デフォルト)
         engine_dir = base_dir / "external" / "shogi-cli" / "suisho5"
