@@ -107,7 +107,9 @@ echo -e "usi\nisready\nposition startpos\ngo depth 10\nquit" | ./YaneuraOu-mac
 |------|-----------|-----|
 | Mac Apple Silicon | 1 | 約 1.0M |
 | Mac Apple Silicon | 8 | 約 4.9M |
-| Windows Ryzen 7 9700X (AVX2) | 1 | 約 2.0M |
+| Windows Ryzen 7 9700X (AVX2) | 1 | 約 2.4M |
+| Windows Ryzen 7 9700X (AVX2) | 8 | 約 15.7M |
+| Windows Ryzen 7 9700X (AVX2) | 16 | 約 21.4M |
 
 ※ Windows環境ではAVX2版を使用（AVX512VNNI版はRyzen 9000シリーズ非対応）
 
