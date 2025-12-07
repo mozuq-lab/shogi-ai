@@ -76,6 +76,9 @@ class TrainConfig:
     # 拡張特徴量
     use_features: bool = False
 
+    # 勝敗補助損失
+    aux_loss_weight: float = 0.1
+
 
 @dataclass
 class TrainState:
@@ -151,6 +154,7 @@ def train_epoch(
     state: TrainState,
     log_every: int,
     use_features: bool = False,
+    aux_loss_weight: float = 0.1,
 ) -> float:
     """1エポック学習."""
     model.train()
@@ -161,14 +165,23 @@ def train_epoch(
         board = batch["board"].to(device)
         hand = batch["hand"].to(device)
         turn = batch["turn"].to(device)
-        target = batch["value"].to(device).unsqueeze(1)
+        target_value = batch["value"].to(device).unsqueeze(1)
+        target_outcome = batch["outcome"].to(device).unsqueeze(1)
         features = batch.get("features")
         if features is not None:
             features = features.to(device)
 
         optimizer.zero_grad()
-        output = model(board, hand, turn, features)
-        loss = nn.functional.mse_loss(output, target)
+        value, outcome = model(board, hand, turn, features)
+
+        # 評価値損失（主タスク）
+        value_loss = nn.functional.mse_loss(value, target_value)
+
+        # 勝敗損失（補助タスク）
+        outcome_loss = nn.functional.binary_cross_entropy(outcome, target_outcome)
+
+        # 合計損失
+        loss = value_loss + aux_loss_weight * outcome_loss
         loss.backward()
         optimizer.step()
 
@@ -178,7 +191,8 @@ def train_epoch(
 
         if state.global_step % log_every == 0:
             logger.info(
-                f"Step {state.global_step}: loss={loss.item():.6f}"
+                f"Step {state.global_step}: loss={loss.item():.6f} "
+                f"(value={value_loss.item():.6f}, outcome={outcome_loss.item():.6f})"
             )
 
     return total_loss / num_batches
@@ -190,6 +204,7 @@ def validate(
     loader: DataLoader,
     device: torch.device,
     use_features: bool = False,
+    aux_loss_weight: float = 0.1,
 ) -> float:
     """バリデーション."""
     model.eval()
@@ -200,13 +215,22 @@ def validate(
         board = batch["board"].to(device)
         hand = batch["hand"].to(device)
         turn = batch["turn"].to(device)
-        target = batch["value"].to(device).unsqueeze(1)
+        target_value = batch["value"].to(device).unsqueeze(1)
+        target_outcome = batch["outcome"].to(device).unsqueeze(1)
         features = batch.get("features")
         if features is not None:
             features = features.to(device)
 
-        output = model(board, hand, turn, features)
-        loss = nn.functional.mse_loss(output, target)
+        value, outcome = model(board, hand, turn, features)
+
+        # 評価値損失（主タスク）
+        value_loss = nn.functional.mse_loss(value, target_value)
+
+        # 勝敗損失（補助タスク）
+        outcome_loss = nn.functional.binary_cross_entropy(outcome, target_outcome)
+
+        # 合計損失
+        loss = value_loss + aux_loss_weight * outcome_loss
 
         total_loss += loss.item()
         num_batches += 1
@@ -316,11 +340,16 @@ def train(config: TrainConfig) -> None:
         train_loss = train_epoch(
             model, train_loader, optimizer, device, state, config.log_every,
             use_features=config.use_features,
+            aux_loss_weight=config.aux_loss_weight,
         )
         state.train_losses.append(train_loss)
 
         # バリデーション
-        val_loss = validate(model, val_loader, device, use_features=config.use_features)
+        val_loss = validate(
+            model, val_loader, device,
+            use_features=config.use_features,
+            aux_loss_weight=config.aux_loss_weight,
+        )
         state.val_losses.append(val_loss)
 
         # スケジューラ更新（warmup後）
@@ -393,6 +422,9 @@ def main() -> None:
     # 拡張特徴量
     parser.add_argument("--use-features", action="store_true", help="拡張特徴量を使用")
 
+    # 補助損失
+    parser.add_argument("--aux-loss-weight", type=float, default=0.1, help="勝敗補助損失の重み")
+
     args = parser.parse_args()
 
     config = TrainConfig(
@@ -412,6 +444,7 @@ def main() -> None:
         ffn_dim=args.ffn_dim,
         dropout=args.dropout,
         use_features=args.use_features,
+        aux_loss_weight=args.aux_loss_weight,
     )
 
     train(config)

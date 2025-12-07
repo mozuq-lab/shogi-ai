@@ -99,8 +99,9 @@ class TestValueTransformer:
         hand = torch.zeros(batch_size, 14, dtype=torch.long)
         turn = torch.zeros(batch_size, dtype=torch.long)
 
-        output = model(board, hand, turn)
-        assert output.shape == (batch_size, 1)
+        value, outcome = model(board, hand, turn)
+        assert value.shape == (batch_size, 1)
+        assert outcome.shape == (batch_size, 1)
 
     def test_output_range(self, model: ValueTransformer) -> None:
         batch_size = 4
@@ -108,17 +109,21 @@ class TestValueTransformer:
         hand = torch.randint(0, 5, (batch_size, 14))
         turn = torch.randint(0, 2, (batch_size,))
 
-        output = model(board, hand, turn)
-        assert torch.all(output >= -1.0)
-        assert torch.all(output <= 1.0)
+        value, outcome = model(board, hand, turn)
+        # 評価値は [-1, 1]
+        assert torch.all(value >= -1.0)
+        assert torch.all(value <= 1.0)
+        # 勝率は [0, 1]
+        assert torch.all(outcome >= 0.0)
+        assert torch.all(outcome <= 1.0)
 
     def test_gradient_flow(self, model: ValueTransformer) -> None:
         board = torch.randint(0, 29, (2, 81))
         hand = torch.randint(0, 5, (2, 14))
         turn = torch.randint(0, 2, (2,))
 
-        output = model(board, hand, turn)
-        loss = output.sum()
+        value, outcome = model(board, hand, turn)
+        loss = value.sum() + outcome.sum()
         loss.backward()
 
         # 全パラメータに勾配が流れていることを確認
@@ -189,10 +194,14 @@ class TestIntegration:
         model = ValueTransformer(d_model=64, n_heads=2, n_layers=2, ffn_dim=128)
 
         # 推論
-        output = model(batch["board"], batch["hand"], batch["turn"])
-        assert output.shape == (2, 1)
+        value, outcome = model(batch["board"], batch["hand"], batch["turn"])
+        assert value.shape == (2, 1)
+        assert outcome.shape == (2, 1)
 
         # 損失計算
-        target = batch["value"].unsqueeze(1)
-        loss = torch.nn.functional.mse_loss(output, target)
-        assert loss.item() >= 0
+        target_value = batch["value"].unsqueeze(1)
+        target_outcome = batch["outcome"].unsqueeze(1)
+        value_loss = torch.nn.functional.mse_loss(value, target_value)
+        outcome_loss = torch.nn.functional.binary_cross_entropy(outcome, target_outcome)
+        assert value_loss.item() >= 0
+        assert outcome_loss.item() >= 0

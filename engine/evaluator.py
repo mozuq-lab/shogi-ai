@@ -99,8 +99,8 @@ class Evaluator:
 
         # 推論
         with torch.no_grad():
-            output = self.model(board, hand, turn, features)
-            value = output.item()
+            value_output, _ = self.model(board, hand, turn, features)
+            value = value_output.item()
 
         # centipawnに変換
         return int(denormalize_cp(value))

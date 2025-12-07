@@ -66,7 +66,8 @@ class ShogiValueDataset(Dataset):
                 - hand: 持ち駒テンソル (14,)
                 - turn: 手番テンソル ()
                 - value: 正規化評価値テンソル ()
-                - features: 拡張特徴量テンソル (81, 6) [use_features=True時のみ]
+                - outcome: 勝敗ラベル (1.0: 手番側勝ち, 0.0: 手番側負け, 0.5: 引き分け)
+                - features: 拡張特徴量テンソル (81, 10) [use_features=True時のみ]
         """
         sample = self.samples[idx]
         sfen = sample["sfen"]
@@ -78,11 +79,24 @@ class ShogiValueDataset(Dataset):
         # 評価値を正規化
         value = normalize_cp(score_cp, self.cp_scale)
 
+        # 勝敗ラベルを手番視点に変換
+        result_str = sample.get("result", "draw")
+        ply = sample.get("ply", 0)
+        is_black_turn = (ply % 2 == 0)  # 偶数手目は先手番
+
+        if result_str == "black_win":
+            outcome = 1.0 if is_black_turn else 0.0
+        elif result_str == "white_win":
+            outcome = 0.0 if is_black_turn else 1.0
+        else:  # draw
+            outcome = 0.5
+
         result = {
             "board": parsed.board,
             "hand": parsed.hand,
             "turn": parsed.turn,
             "value": torch.tensor(value, dtype=torch.float32),
+            "outcome": torch.tensor(outcome, dtype=torch.float32),
         }
 
         # 拡張特徴量を追加
@@ -115,6 +129,7 @@ def collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
         "hand": torch.stack([s["hand"] for s in batch]),
         "turn": torch.stack([s["turn"] for s in batch]),
         "value": torch.stack([s["value"] for s in batch]),
+        "outcome": torch.stack([s["outcome"] for s in batch]),
     }
 
     # 拡張特徴量がある場合

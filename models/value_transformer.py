@@ -127,13 +127,22 @@ class ValueTransformer(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
 
-        # 出力ヘッド
+        # 評価値出力ヘッド
         self.output_head = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_model // 2, 1),
             nn.Tanh(),  # [-1, 1] に正規化
+        )
+
+        # 勝敗予測ヘッド（補助タスク）
+        self.outcome_head = nn.Sequential(
+            nn.Linear(d_model, d_model // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model // 2, 1),
+            nn.Sigmoid(),  # [0, 1] 勝率
         )
 
         self._init_weights()
@@ -205,10 +214,13 @@ class ValueTransformer(nn.Module):
         # ここでは全体の平均プーリングを使用
         pooled = encoded.mean(dim=1)  # (batch, d_model)
 
-        # 出力
+        # 評価値出力
         value = self.output_head(pooled)  # (batch, 1)
 
-        return value
+        # 勝敗予測出力
+        outcome = self.outcome_head(pooled)  # (batch, 1)
+
+        return value, outcome
 
 
 def normalize_cp(cp: int, scale: float = 1200.0) -> float:
