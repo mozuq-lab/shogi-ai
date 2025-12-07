@@ -214,6 +214,11 @@ PYTHONPATH=. python train/train.py \
     --data data/raw/large_dataset.jsonl \
     --use-features \
     --aux-loss-weight 0.1 \
+    --normalize-turn \
+    --augment-flip \
+    --cp-noise 7.5 \
+    --cp-filter-threshold 1500 \
+    --num-workers 4 \
     --epochs 100 \
     --batch-size 512
 ```

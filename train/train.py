@@ -91,6 +91,9 @@ class TrainConfig:
     normalize_turn: bool = False
     augment_flip: bool = False
 
+    # データローダー
+    num_workers: int = 0
+
 
 @dataclass
 class TrainState:
@@ -295,16 +298,18 @@ def train(config: TrainConfig) -> None:
         batch_size=config.batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=0,  # Windows互換性のため
+        num_workers=config.num_workers,
         pin_memory=device.type == "cuda",
+        persistent_workers=config.num_workers > 0,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=config.batch_size,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=0,
+        num_workers=config.num_workers,
         pin_memory=device.type == "cuda",
+        persistent_workers=config.num_workers > 0,
     )
 
     # モデル
@@ -464,6 +469,9 @@ def main() -> None:
     parser.add_argument("--normalize-turn", action="store_true", help="後手番を先手視点に正規化")
     parser.add_argument("--augment-flip", action="store_true", help="左右反転でデータ拡張（2倍）")
 
+    # データローダー
+    parser.add_argument("--num-workers", type=int, default=0, help="データローダーのワーカー数")
+
     args = parser.parse_args()
 
     config = TrainConfig(
@@ -490,6 +498,7 @@ def main() -> None:
         cp_filter_threshold=args.cp_filter_threshold,
         normalize_turn=args.normalize_turn,
         augment_flip=args.augment_flip,
+        num_workers=args.num_workers,
     )
 
     train(config)

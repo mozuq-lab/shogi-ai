@@ -39,6 +39,7 @@ PYTHONPATH=. python train/train.py \
     --augment-flip \
     --cp-noise 7.5 \
     --cp-filter-threshold 1500 \
+    --num-workers 4 \
     --epochs 100 \
     --batch-size 512
 ```
@@ -78,6 +79,7 @@ PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt
 | `--cp-filter-threshold` | - | 極端な評価値を除外する閾値 |
 | `--grad-clip-norm` | 1.0 | 勾配クリッピングのmax_norm |
 | `--label-smoothing` | 0.05 | Label Smoothingの強度 |
+| `--num-workers` | 0 | データローダーの並列ワーカー数 |
 
 ## ディレクトリ構成
 
