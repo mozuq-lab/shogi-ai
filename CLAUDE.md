@@ -206,6 +206,17 @@ PYTHONPATH=. python train/train.py --data data.jsonl --aux-loss-weight 0.2
 
 損失 = MSE(評価値) + weight × BCE(勝率)
 
+### 全ての改良を有効にした学習
+
+```bash
+PYTHONPATH=. python train/train.py \
+    --data data/raw/large_dataset.jsonl \
+    --use-features \
+    --aux-loss-weight 0.1 \
+    --epochs 100 \
+    --batch-size 512
+```
+
 #### 出力
 
 - スカラー値 [-1, 1]（勝率近似、tanh正規化）
