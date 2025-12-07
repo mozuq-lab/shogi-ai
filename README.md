@@ -70,6 +70,7 @@ PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt
 | `--data` | 必須 | データファイルパス |
 | `--epochs` | 100 | エポック数 |
 | `--batch-size` | 512 | バッチサイズ |
+| `--lr` | 3e-4 | 学習率 |
 | `--use-features` | - | 拡張特徴量を使用 |
 | `--aux-loss-weight` | 0.1 | 勝敗補助損失の重み |
 | `--device` | auto | デバイス（auto/cuda/mps/cpu） |
