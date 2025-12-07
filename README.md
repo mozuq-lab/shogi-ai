@@ -35,6 +35,10 @@ PYTHONPATH=. python train/train.py \
     --data data/raw/dataset.jsonl \
     --use-features \
     --aux-loss-weight 0.1 \
+    --normalize-turn \
+    --augment-flip \
+    --cp-noise 7.5 \
+    --cp-filter-threshold 1500 \
     --epochs 100 \
     --batch-size 512
 ```
@@ -68,6 +72,12 @@ PYTHONPATH=. python engine/usi_server.py --model checkpoints/best.pt
 | `--use-features` | - | 拡張特徴量を使用 |
 | `--aux-loss-weight` | 0.1 | 勝敗補助損失の重み |
 | `--device` | auto | デバイス（auto/cuda/mps/cpu） |
+| `--normalize-turn` | - | 後手番を先手視点に正規化 |
+| `--augment-flip` | - | 左右反転でデータ2倍化 |
+| `--cp-noise` | 0 | 評価値ノイズの標準偏差（cp） |
+| `--cp-filter-threshold` | - | 極端な評価値を除外する閾値 |
+| `--grad-clip-norm` | 1.0 | 勾配クリッピングのmax_norm |
+| `--label-smoothing` | 0.05 | Label Smoothingの強度 |
 
 ## ディレクトリ構成
 
