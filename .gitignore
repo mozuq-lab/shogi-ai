@@ -47,6 +47,8 @@ Thumbs.db
 # Project specific
 data/raw/*.jsonl
 data/raw/*.csv
+data/raw/*.kif
+*.kif
 data/processed/
 logs/
 checkpoints/
