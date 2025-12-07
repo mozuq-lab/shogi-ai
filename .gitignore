@@ -50,6 +50,7 @@ data/raw/*.csv
 data/processed/
 logs/
 checkpoints/
+checkpoints_*/
 *.log
 
 # Large files (models, datasets)
