@@ -170,7 +170,9 @@ loader = DataLoader(dataset, batch_size=64, shuffle=True, collate_fn=collate_fn)
 
 # 推論
 batch = next(iter(loader))
-output = model(batch["board"], batch["hand"], batch["turn"])  # (batch, 1), [-1, 1]
+value, outcome = model(batch["board"], batch["hand"], batch["turn"])
+# value: (batch, 1) 評価値 [-1, 1]
+# outcome: (batch, 1) 勝率予測 [0, 1]
 ```
 
 #### 入力表現
@@ -182,7 +184,7 @@ output = model(batch["board"], batch["hand"], batch["turn"])  # (batch, 1), [-1,
 
 #### 拡張特徴量（オプション）
 
-`--use-features` フラグで有効化。各マスに6次元の追加特徴量を付与：
+`--use-features` フラグで有効化。各マスに10次元の追加特徴量を付与：
 
 | 特徴量 | 次元 | 説明 |
 |--------|------|------|
@@ -190,6 +192,7 @@ output = model(batch["board"], batch["hand"], batch["turn"])  # (batch, 1), [-1,
 | king_distance | 2 | 先手玉/後手玉からのチェビシェフ距離 |
 | piece_value | 1 | 駒価値（先手+、後手-） |
 | control | 1 | 支配度（利きの差をtanh正規化） |
+| king_safety | 4 | 玉安全度（味方駒数、敵利き数 × 先後） |
 
 ```python
 # 拡張特徴量を使用したモデル
@@ -295,7 +298,7 @@ checkpoints/
 - Optimizer: AdamW
 - 学習率: 3e-4（5エポックwarmup後、コサインアニーリング）
 - バッチサイズ: 512〜1024
-- 損失関数: MSE
+- 損失関数: MSE(評価値) + 0.1 × BCE(勝率)
 
 ## Phase 4: USIエンジン
 
