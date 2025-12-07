@@ -98,6 +98,9 @@ python tools/gen_dataset.py -n 10 --depth 15 -o data/raw/depth15.jsonl
 # 時間指定（500ms）で生成
 python tools/gen_dataset.py -n 10 --movetime 500
 
+# 並列実行（4ワーカー）
+python tools/gen_dataset.py -n 100 --depth 10 --workers 4
+
 # Haoエンジンを使用
 python tools/gen_dataset.py -n 10 --engine-type hao
 python tools/gen_dataset.py -n 10 --depth 15 --engine-type hao -o data/raw/hao_depth15.jsonl

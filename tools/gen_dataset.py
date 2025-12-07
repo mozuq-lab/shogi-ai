@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import argparse
 import sys
+import os
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Optional
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -155,6 +157,96 @@ class SelfPlayGenerator:
         return "startpos moves " + " ".join(moves)
 
 
+def _play_game_worker(args: tuple) -> list[dict]:
+    """ワーカープロセスで1対局を実行
+
+    Args:
+        args: (game_id, engine_path, depth, movetime, max_ply, use_book, random_opening_ply)
+
+    Returns:
+        局面レコードのリスト（辞書形式）
+    """
+    game_id, engine_path, depth, movetime, max_ply, use_book, random_opening_ply = args
+
+    generator = SelfPlayGenerator(
+        engine_path=Path(engine_path),
+        depth=depth,
+        movetime=movetime,
+        max_ply=max_ply,
+        use_book=use_book,
+        random_opening_ply=random_opening_ply,
+    )
+
+    try:
+        records = generator.play_game(game_id)
+        return [asdict(r) for r in records]
+    except Exception as e:
+        print(f"Game {game_id} error: {e}", flush=True)
+        return []
+
+
+def generate_dataset_parallel(
+    num_games: int,
+    output_path: Path,
+    engine_path: Path,
+    depth: Optional[int] = None,
+    movetime: Optional[int] = None,
+    max_ply: int = 256,
+    use_book: bool = False,
+    random_opening_ply: int = 0,
+    num_workers: int = 4,
+) -> int:
+    """データセットを並列生成
+
+    Args:
+        num_games: 対局数
+        output_path: 出力ファイルパス
+        engine_path: エンジンパス
+        depth: 探索深さ
+        movetime: 思考時間（ミリ秒）
+        max_ply: 最大手数
+        use_book: 定跡使用
+        random_opening_ply: 序盤のランダム手数
+        num_workers: ワーカー数
+
+    Returns:
+        生成した局面数
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # ワーカーへの引数を準備
+    worker_args = [
+        (game_id, str(engine_path), depth, movetime, max_ply, use_book, random_opening_ply)
+        for game_id in range(num_games)
+    ]
+
+    total_positions = 0
+    completed_games = 0
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # 全てのタスクをサブミット
+            futures = {executor.submit(_play_game_worker, args): args[0] for args in worker_args}
+
+            for future in as_completed(futures):
+                game_id = futures[future]
+                completed_games += 1
+
+                try:
+                    records = future.result()
+                    for record in records:
+                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+                    total_positions += len(records)
+                    result = records[0]["result"] if records else "N/A"
+                    print(f"[{completed_games}/{num_games}] Game {game_id}: {len(records)} positions, result: {result}")
+
+                except Exception as e:
+                    print(f"[{completed_games}/{num_games}] Game {game_id} failed: {e}")
+
+    return total_positions
+
+
 def generate_dataset(
     num_games: int,
     output_path: Path,
@@ -223,6 +315,7 @@ def main():
     parser.add_argument("--random-opening", "-r", type=int, default=32, help="序盤のランダム手数（デフォルト: 32）")
     parser.add_argument("--engine", type=str, default=None, help="エンジンパス（直接指定）")
     parser.add_argument("--engine-type", type=str, default="suisho5", choices=["suisho5", "hao"], help="エンジン種類（デフォルト: suisho5）")
+    parser.add_argument("--workers", "-w", type=int, default=1, help="並列ワーカー数（デフォルト: 1）")
 
     args = parser.parse_args()
 
@@ -257,19 +350,33 @@ def main():
     print(f"  Max ply: {args.max_ply}")
     print(f"  Use book: {args.use_book}")
     print(f"  Random opening: {args.random_opening} ply")
+    print(f"  Workers: {args.workers}")
     print(f"  Output: {output_path}")
     print()
 
-    total = generate_dataset(
-        num_games=args.num_games,
-        output_path=output_path,
-        engine_path=engine_path,
-        depth=depth,
-        movetime=movetime,
-        max_ply=args.max_ply,
-        use_book=args.use_book,
-        random_opening_ply=args.random_opening,
-    )
+    if args.workers > 1:
+        total = generate_dataset_parallel(
+            num_games=args.num_games,
+            output_path=output_path,
+            engine_path=engine_path,
+            depth=depth,
+            movetime=movetime,
+            max_ply=args.max_ply,
+            use_book=args.use_book,
+            random_opening_ply=args.random_opening,
+            num_workers=args.workers,
+        )
+    else:
+        total = generate_dataset(
+            num_games=args.num_games,
+            output_path=output_path,
+            engine_path=engine_path,
+            depth=depth,
+            movetime=movetime,
+            max_ply=args.max_ply,
+            use_book=args.use_book,
+            random_opening_ply=args.random_opening,
+        )
 
     print(f"\nDone! Total positions: {total}")
     print(f"Output: {output_path}")
