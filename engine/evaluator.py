@@ -12,6 +12,7 @@ import shogi
 import torch
 
 from models import ValueTransformer, denormalize_cp, parse_sfen, compute_all_features
+from models.dataset import normalize_to_black_view
 
 if TYPE_CHECKING:
     pass
@@ -32,7 +33,9 @@ class Evaluator:
             device: 推論デバイス（auto/cuda/mps/cpu）
         """
         self.device = self._get_device(device)
-        self.model, self.use_features = self._load_model(Path(model_path))
+        self.model, self.use_features, self.normalize_turn = self._load_model(
+            Path(model_path)
+        )
 
     def _get_device(self, device_str: str) -> torch.device:
         """デバイスを取得."""
@@ -45,13 +48,14 @@ class Evaluator:
                 return torch.device("cpu")
         return torch.device(device_str)
 
-    def _load_model(self, model_path: Path) -> tuple[ValueTransformer, bool]:
+    def _load_model(self, model_path: Path) -> tuple[ValueTransformer, bool, bool]:
         """モデルを読み込み."""
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
         # チェックポイントからモデル設定を取得
         config = checkpoint.get("config", {})
         use_features = config.get("use_features", False)
+        normalize_turn = config.get("normalize_turn", False)
 
         model = ValueTransformer(
             d_model=config.get("d_model", 256),
@@ -66,7 +70,7 @@ class Evaluator:
         model.to(self.device)
         model.eval()
 
-        return model, use_features
+        return model, use_features, normalize_turn
 
     def evaluate_sfen(self, sfen: str) -> int:
         """SFEN文字列で表された局面を評価.
@@ -80,15 +84,27 @@ class Evaluator:
         # SFENをパース
         parsed = parse_sfen(sfen)
 
+        board = parsed.board
+        hand = parsed.hand
+        turn = parsed.turn
+
+        # normalize_turnで学習したモデルの場合、後手番を先手視点に変換
+        is_white_turn = turn.item() == 1
+        if self.normalize_turn and is_white_turn:
+            # ダミーの評価値と勝敗を渡して正規化
+            board, hand, turn, _, _ = normalize_to_black_view(
+                board, hand, turn, 0.0, 0.5
+            )
+
         # バッチ次元を追加
-        board = parsed.board.unsqueeze(0).to(self.device)
-        hand = parsed.hand.unsqueeze(0).to(self.device)
-        turn = parsed.turn.unsqueeze(0).to(self.device)
+        board = board.unsqueeze(0).to(self.device)
+        hand = hand.unsqueeze(0).to(self.device)
+        turn = turn.unsqueeze(0).to(self.device)
 
         # 拡張特徴量
         features = None
         if self.use_features:
-            feat_dict = compute_all_features(parsed.board)
+            feat_dict = compute_all_features(board.squeeze(0))
             features = torch.cat([
                 feat_dict["attack_map"],
                 feat_dict["king_distance"],
@@ -101,6 +117,10 @@ class Evaluator:
         with torch.no_grad():
             value_output, _ = self.model(board, hand, turn, features)
             value = value_output.item()
+
+        # normalize_turnで後手番を変換した場合、評価値を反転して手番側視点に戻す
+        if self.normalize_turn and is_white_turn:
+            value = -value
 
         # centipawnに変換
         return int(denormalize_cp(value))
