@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,8 @@ class ShogiValueDataset(Dataset):
         data_path: JONLデータファイルのパス
         cp_scale: centipawn正規化のスケール（デフォルト: 1200）
         use_features: 拡張特徴量を使用するかどうか（デフォルト: False）
+        cp_noise: 評価値に加えるノイズの標準偏差（デフォルト: 0、無効）
+        cp_filter_threshold: 評価値フィルタの閾値（デフォルト: None、無効）
     """
 
     def __init__(
@@ -33,10 +36,14 @@ class ShogiValueDataset(Dataset):
         data_path: str | Path,
         cp_scale: float = 1200.0,
         use_features: bool = False,
+        cp_noise: float = 0.0,
+        cp_filter_threshold: float | None = None,
     ) -> None:
         self.data_path = Path(data_path)
         self.cp_scale = cp_scale
         self.use_features = use_features
+        self.cp_noise = cp_noise
+        self.cp_filter_threshold = cp_filter_threshold
         self.samples: list[dict] = []
 
         self._load_data()
@@ -49,6 +56,13 @@ class ShogiValueDataset(Dataset):
                 if not line:
                     continue
                 sample = json.loads(line)
+
+                # 評価値フィルタ: 極端な評価値を除外
+                if self.cp_filter_threshold is not None:
+                    score_cp = sample.get("score_cp", 0)
+                    if abs(score_cp) > self.cp_filter_threshold:
+                        continue
+
                 self.samples.append(sample)
 
     def __len__(self) -> int:
@@ -72,6 +86,10 @@ class ShogiValueDataset(Dataset):
         sample = self.samples[idx]
         sfen = sample["sfen"]
         score_cp = sample["score_cp"]
+
+        # 評価値ノイズ付与（学習時の過学習抑制）
+        if self.cp_noise > 0:
+            score_cp = score_cp + random.gauss(0, self.cp_noise)
 
         # SFENをパース
         parsed = parse_sfen(sfen)

@@ -79,6 +79,14 @@ class TrainConfig:
     # 勝敗補助損失
     aux_loss_weight: float = 0.1
 
+    # 学習安定化
+    grad_clip_norm: float = 1.0
+    label_smoothing: float = 0.05
+
+    # データ前処理
+    cp_noise: float = 0.0
+    cp_filter_threshold: float | None = None
+
 
 @dataclass
 class TrainState:
@@ -155,6 +163,8 @@ def train_epoch(
     log_every: int,
     use_features: bool = False,
     aux_loss_weight: float = 0.1,
+    grad_clip_norm: float = 1.0,
+    label_smoothing: float = 0.05,
 ) -> float:
     """1エポック学習."""
     model.train()
@@ -171,18 +181,25 @@ def train_epoch(
         if features is not None:
             features = features.to(device)
 
+        # Label Smoothing: [0, 1] → [smoothing, 1 - smoothing]
+        smoothed_outcome = target_outcome * (1 - 2 * label_smoothing) + label_smoothing
+
         optimizer.zero_grad()
         value, outcome = model(board, hand, turn, features)
 
         # 評価値損失（主タスク）
         value_loss = nn.functional.mse_loss(value, target_value)
 
-        # 勝敗損失（補助タスク）
-        outcome_loss = nn.functional.binary_cross_entropy(outcome, target_outcome)
+        # 勝敗損失（補助タスク、Label Smoothing適用）
+        outcome_loss = nn.functional.binary_cross_entropy(outcome, smoothed_outcome)
 
         # 合計損失
         loss = value_loss + aux_loss_weight * outcome_loss
         loss.backward()
+
+        # Gradient Clipping
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+
         optimizer.step()
 
         total_loss += loss.item()
@@ -251,6 +268,8 @@ def train(config: TrainConfig) -> None:
         config.data_path,
         cp_scale=config.cp_scale,
         use_features=config.use_features,
+        cp_noise=config.cp_noise,
+        cp_filter_threshold=config.cp_filter_threshold,
     )
     logger.info(f"Dataset size: {len(dataset)}")
 
@@ -341,6 +360,8 @@ def train(config: TrainConfig) -> None:
             model, train_loader, optimizer, device, state, config.log_every,
             use_features=config.use_features,
             aux_loss_weight=config.aux_loss_weight,
+            grad_clip_norm=config.grad_clip_norm,
+            label_smoothing=config.label_smoothing,
         )
         state.train_losses.append(train_loss)
 
@@ -425,6 +446,14 @@ def main() -> None:
     # 補助損失
     parser.add_argument("--aux-loss-weight", type=float, default=0.1, help="勝敗補助損失の重み")
 
+    # 学習安定化
+    parser.add_argument("--grad-clip-norm", type=float, default=1.0, help="勾配クリッピングのmax_norm")
+    parser.add_argument("--label-smoothing", type=float, default=0.05, help="Label Smoothingの強度")
+
+    # データ前処理
+    parser.add_argument("--cp-noise", type=float, default=0.0, help="評価値ノイズの標準偏差（cp）")
+    parser.add_argument("--cp-filter-threshold", type=float, default=None, help="評価値フィルタの閾値（cp）")
+
     args = parser.parse_args()
 
     config = TrainConfig(
@@ -445,6 +474,10 @@ def main() -> None:
         dropout=args.dropout,
         use_features=args.use_features,
         aux_loss_weight=args.aux_loss_weight,
+        grad_clip_norm=args.grad_clip_norm,
+        label_smoothing=args.label_smoothing,
+        cp_noise=args.cp_noise,
+        cp_filter_threshold=args.cp_filter_threshold,
     )
 
     train(config)
