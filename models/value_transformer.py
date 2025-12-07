@@ -170,10 +170,12 @@ class ValueTransformer(nn.Module):
             board: 盤面の駒配置 (batch, 81) - 駒種ID
             hand: 持ち駒の枚数 (batch, 14) - 各持ち駒種の枚数
             turn: 手番 (batch,) - 0:先手, 1:後手
-            features: 拡張特徴量 (batch, 81, 6) - use_features=True時のみ使用
+            features: 拡張特徴量 (batch, 81, 10) - use_features=True時のみ使用
 
         Returns:
-            評価値 (batch, 1) - [-1, 1]の範囲
+            tuple[Tensor, Tensor]:
+                - value: 評価値 (batch, 1) - [-1, 1]の範囲
+                - outcome: 勝率予測 (batch, 1) - [0, 1]の範囲
         """
         batch_size = board.size(0)
 
