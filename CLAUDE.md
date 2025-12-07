@@ -21,6 +21,7 @@ Value Network（局面→評価値）のみを実装対象とし、ポリシー�
 - [x] Phase 2: モデル設計・実装
 - [x] Phase 3: 学習スクリプト実装（本格学習はWindows環境で実施）
 - [x] Phase 4: エンジン組み込み（1手読み）
+- [ ] Phase 5: モデル改良（詳細は末尾のタスクリストを参照）
 
 ## ディレクトリ構成
 
@@ -353,3 +354,79 @@ best_move, score = evaluator.find_best_move(board)
 - docstring: Google style
 - テスト: pytest
 - Python 3.10+互換（`from __future__ import annotations`使用）
+
+---
+
+## Phase 5: モデル改良タスク
+
+### 優先度A: 即効性が高く低リスク（1-2時間）
+
+- [x] **Gradient Clipping** - 勾配爆発防止
+  - `train.py`: `--grad-clip-norm`オプション（デフォルト: 1.0）
+
+- [x] **Label Smoothing** - 勝敗予測の過信防止
+  - `train.py`: `--label-smoothing`オプション（デフォルト: 0.05）
+
+- [x] **評価値ノイズ付与** - 過学習抑制
+  - `train.py`: `--cp-noise`オプション（デフォルト: 0、推奨: 5-10）
+
+- [x] **簡単局面フィルタ** - 極端な評価値を間引き
+  - `train.py`: `--cp-filter-threshold`オプション（推奨: 1500）
+
+### 優先度B: データ効率の最大化（半日〜1日）
+
+- [x] **盤面正規化（手番反転）** - 常に先手視点に統一
+  - `train.py`: `--normalize-turn`オプション
+  - 効果: 後手番の局面を先手視点に変換し、モデルの学習を効率化
+
+- [x] **左右反転データ拡張** - 対称性を活用
+  - `train.py`: `--augment-flip`オプション
+  - 効果: データを2倍に（normalize-turnと合わせて使用可能）
+
+- [ ] **重み付き損失（nodes基準）** - 難しい局面を重視
+  - `gen_dataset.py`: 探索ノード数をJSONLに保存（SearchResultに既存）
+  - `dataset.py`, `train.py`: ノード数が多い局面の損失を重くする
+
+### 優先度C: 学習の安定化・汎化性能向上（半日〜1日）
+
+- [ ] **SWA (Stochastic Weight Averaging)** - 汎化性能向上
+  - `train.py`: 末期エポックでSWAを有効化
+  - `torch.optim.swa_utils.AveragedModel`使用
+
+- [ ] **EMA (Exponential Moving Average)** - 推論用重み平滑化
+  - `train.py`: 学習中にEMA重みを維持、推論時はEMA版を使用
+
+- [ ] **検証セット分割評価** - 弱点の可視化
+  - `train.py`: 序盤(ply<30)/中盤(30-80)/終盤(80+)別にval_lossを計算・ログ出力
+
+### 優先度D: 推論改良（半日）
+
+- [ ] **TTA (Test-Time Augmentation)** - 推論精度向上
+  - `evaluator.py`: 元盤面と左右反転盤面の評価値を平均
+
+- [ ] **Temperature付きスケーリング** - 出力調整
+  - `evaluator.py`: `tanh(x / T)`でチューニングパラメータ導入
+
+### 優先度E: 特徴量拡張（半日〜1日）
+
+- [ ] **王手フラグ追加** - 局面状態の明示
+  - `features.py`: python-shogiの`board.is_check()`を活用
+
+- [ ] **駒得スカラー追加** - グローバル特徴
+  - `features.py`: 先手の駒価値合計 - 後手の駒価値合計
+
+### 優先度F: モデル構造の実験（数日）
+
+- [ ] **CNN + Transformer** - 局所性を明示
+  - `value_transformer.py`: 3×3近傍を扱うCNN埋め込みの上にTransformerを重ねる
+
+- [ ] **RoPE/ALiBi位置埋め込み** - 長手数への汎化
+  - `value_transformer.py`: 固定正弦波→Rotary Position Embeddingに変更
+
+### 優先度G: 長期研究課題
+
+- [ ] **マルチタスク（指し手優先度ヘッド）** - ポリシーの粗スーパビジョン
+- [ ] **cp→勝率キャリブレーション** - 後処理補正関数
+- [ ] **Curriculum Learning** - 序盤→中盤→終盤のデータ比率を段階的に変化
+- [ ] **軽量ビーム探索** - αβ等の探索アルゴリズム実装
+- [ ] **Endgame特化ヘッド** - 終盤検知時に別ヘッドに切り替え
