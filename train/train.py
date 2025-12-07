@@ -87,6 +87,10 @@ class TrainConfig:
     cp_noise: float = 0.0
     cp_filter_threshold: float | None = None
 
+    # データ拡張
+    normalize_turn: bool = False
+    augment_flip: bool = False
+
 
 @dataclass
 class TrainState:
@@ -270,6 +274,8 @@ def train(config: TrainConfig) -> None:
         use_features=config.use_features,
         cp_noise=config.cp_noise,
         cp_filter_threshold=config.cp_filter_threshold,
+        normalize_turn=config.normalize_turn,
+        augment_flip=config.augment_flip,
     )
     logger.info(f"Dataset size: {len(dataset)}")
 
@@ -454,6 +460,10 @@ def main() -> None:
     parser.add_argument("--cp-noise", type=float, default=0.0, help="評価値ノイズの標準偏差（cp）")
     parser.add_argument("--cp-filter-threshold", type=float, default=None, help="評価値フィルタの閾値（cp）")
 
+    # データ拡張
+    parser.add_argument("--normalize-turn", action="store_true", help="後手番を先手視点に正規化")
+    parser.add_argument("--augment-flip", action="store_true", help="左右反転でデータ拡張（2倍）")
+
     args = parser.parse_args()
 
     config = TrainConfig(
@@ -478,6 +488,8 @@ def main() -> None:
         label_smoothing=args.label_smoothing,
         cp_noise=args.cp_noise,
         cp_filter_threshold=args.cp_filter_threshold,
+        normalize_turn=args.normalize_turn,
+        augment_flip=args.augment_flip,
     )
 
     train(config)

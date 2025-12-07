@@ -18,6 +18,140 @@ if TYPE_CHECKING:
     pass
 
 
+def flip_board_horizontal(board: torch.Tensor) -> torch.Tensor:
+    """盤面を左右反転.
+
+    Args:
+        board: 盤面テンソル (81,) 駒種ID
+
+    Returns:
+        左右反転した盤面テンソル (81,)
+    """
+    # 9x9に変形して左右反転し、1Dに戻す
+    board_2d = board.view(9, 9)
+    flipped = torch.flip(board_2d, dims=[1])
+    return flipped.view(81)
+
+
+def flip_hand(hand: torch.Tensor) -> torch.Tensor:
+    """持ち駒を先手/後手入れ替え.
+
+    持ち駒インデックス: 先手0-6, 後手7-13
+
+    Args:
+        hand: 持ち駒テンソル (14,)
+
+    Returns:
+        入れ替えた持ち駒テンソル (14,)
+    """
+    flipped = torch.zeros_like(hand)
+    flipped[:7] = hand[7:]   # 後手の持ち駒 → 先手に
+    flipped[7:] = hand[:7]   # 先手の持ち駒 → 後手に
+    return flipped
+
+
+def flip_board_turn(board: torch.Tensor) -> torch.Tensor:
+    """盤面の駒を先手/後手入れ替え.
+
+    駒ID: 0=空, 1-14=先手, 15-28=後手
+
+    Args:
+        board: 盤面テンソル (81,) 駒種ID
+
+    Returns:
+        先後入れ替えた盤面テンソル (81,)
+    """
+    flipped = board.clone()
+
+    # 先手の駒 (1-14) → 後手の駒 (15-28)
+    black_mask = (board >= 1) & (board <= 14)
+    flipped[black_mask] = board[black_mask] + 14
+
+    # 後手の駒 (15-28) → 先手の駒 (1-14)
+    white_mask = (board >= 15) & (board <= 28)
+    flipped[white_mask] = board[white_mask] - 14
+
+    return flipped
+
+
+def flip_board_vertical(board: torch.Tensor) -> torch.Tensor:
+    """盤面を上下反転（手番反転時に使用）.
+
+    Args:
+        board: 盤面テンソル (81,) 駒種ID
+
+    Returns:
+        上下反転した盤面テンソル (81,)
+    """
+    board_2d = board.view(9, 9)
+    flipped = torch.flip(board_2d, dims=[0])
+    return flipped.view(81)
+
+
+def normalize_to_black_view(
+    board: torch.Tensor,
+    hand: torch.Tensor,
+    turn: torch.Tensor,
+    value: float,
+    outcome: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float, float]:
+    """後手番の局面を先手視点に正規化.
+
+    後手番の場合:
+    - 盤面を180度回転（上下左右反転）
+    - 駒の先後を入れ替え
+    - 持ち駒の先後を入れ替え
+    - 評価値の符号を反転
+    - 勝敗の符号を反転
+
+    Args:
+        board: 盤面テンソル (81,)
+        hand: 持ち駒テンソル (14,)
+        turn: 手番テンソル ()
+        value: 正規化評価値
+        outcome: 勝敗ラベル
+
+    Returns:
+        正規化された (board, hand, turn, value, outcome)
+    """
+    if turn.item() == 0:
+        # 先手番: そのまま
+        return board, hand, turn, value, outcome
+
+    # 後手番: 先手視点に変換
+    # 180度回転 = 上下反転 + 左右反転
+    flipped_board = flip_board_vertical(flip_board_horizontal(board))
+    # 駒の先後入れ替え
+    flipped_board = flip_board_turn(flipped_board)
+    # 持ち駒の先後入れ替え
+    flipped_hand = flip_hand(hand)
+    # 手番を先手に
+    new_turn = torch.tensor(0, dtype=torch.long)
+    # 評価値と勝敗を反転
+    new_value = -value
+    new_outcome = 1.0 - outcome
+
+    return flipped_board, flipped_hand, new_turn, new_value, new_outcome
+
+
+def augment_horizontal_flip(
+    board: torch.Tensor,
+    hand: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """左右反転によるデータ拡張.
+
+    将棋は左右対称なので、盤面を左右反転してもルール上有効。
+
+    Args:
+        board: 盤面テンソル (81,)
+        hand: 持ち駒テンソル (14,)
+
+    Returns:
+        左右反転した (board, hand)
+    """
+    return flip_board_horizontal(board), hand  # 持ち駒は変わらない
+
+
 class ShogiValueDataset(Dataset):
     """将棋局面評価値データセット.
 
@@ -29,6 +163,8 @@ class ShogiValueDataset(Dataset):
         use_features: 拡張特徴量を使用するかどうか（デフォルト: False）
         cp_noise: 評価値に加えるノイズの標準偏差（デフォルト: 0、無効）
         cp_filter_threshold: 評価値フィルタの閾値（デフォルト: None、無効）
+        normalize_turn: 後手番を先手視点に正規化（デフォルト: False）
+        augment_flip: 左右反転でデータ拡張（デフォルト: False）
     """
 
     def __init__(
@@ -38,12 +174,16 @@ class ShogiValueDataset(Dataset):
         use_features: bool = False,
         cp_noise: float = 0.0,
         cp_filter_threshold: float | None = None,
+        normalize_turn: bool = False,
+        augment_flip: bool = False,
     ) -> None:
         self.data_path = Path(data_path)
         self.cp_scale = cp_scale
         self.use_features = use_features
         self.cp_noise = cp_noise
         self.cp_filter_threshold = cp_filter_threshold
+        self.normalize_turn = normalize_turn
+        self.augment_flip = augment_flip
         self.samples: list[dict] = []
 
         self._load_data()
@@ -66,7 +206,10 @@ class ShogiValueDataset(Dataset):
                 self.samples.append(sample)
 
     def __len__(self) -> int:
-        return len(self.samples)
+        base_len = len(self.samples)
+        if self.augment_flip:
+            return base_len * 2  # 元データ + 左右反転
+        return base_len
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """指定インデックスのサンプルを取得.
@@ -83,6 +226,14 @@ class ShogiValueDataset(Dataset):
                 - outcome: 勝敗ラベル (1.0: 手番側勝ち, 0.0: 手番側負け, 0.5: 引き分け)
                 - features: 拡張特徴量テンソル (81, 10) [use_features=True時のみ]
         """
+        # 左右反転拡張: 後半のインデックスは反転版
+        apply_flip = False
+        if self.augment_flip:
+            base_len = len(self.samples)
+            if idx >= base_len:
+                idx = idx - base_len
+                apply_flip = True
+
         sample = self.samples[idx]
         sfen = sample["sfen"]
         score_cp = sample["score_cp"]
@@ -109,17 +260,31 @@ class ShogiValueDataset(Dataset):
         else:  # draw
             outcome = 0.5
 
+        board = parsed.board
+        hand = parsed.hand
+        turn = parsed.turn
+
+        # 手番正規化: 後手番を先手視点に変換
+        if self.normalize_turn:
+            board, hand, turn, value, outcome = normalize_to_black_view(
+                board, hand, turn, value, outcome
+            )
+
+        # 左右反転拡張
+        if apply_flip:
+            board, hand = augment_horizontal_flip(board, hand)
+
         result = {
-            "board": parsed.board,
-            "hand": parsed.hand,
-            "turn": parsed.turn,
+            "board": board,
+            "hand": hand,
+            "turn": turn,
             "value": torch.tensor(value, dtype=torch.float32),
             "outcome": torch.tensor(outcome, dtype=torch.float32),
         }
 
-        # 拡張特徴量を追加
+        # 拡張特徴量を追加（変換後の盤面から計算）
         if self.use_features:
-            features = compute_all_features(parsed.board)
+            features = compute_all_features(board)
             # (81, 10) のテンソルにまとめる
             # [attack(2), king_dist(2), piece_value(1), control(1), king_safety(4)]
             result["features"] = torch.cat([
