@@ -88,13 +88,14 @@ class ShogiValueDataset(Dataset):
         # 拡張特徴量を追加
         if self.use_features:
             features = compute_all_features(parsed.board)
-            # (81, 6) のテンソルにまとめる
-            # [attack_black, attack_white, king_dist_black, king_dist_white, piece_value, control]
+            # (81, 10) のテンソルにまとめる
+            # [attack(2), king_dist(2), piece_value(1), control(1), king_safety(4)]
             result["features"] = torch.cat([
                 features["attack_map"],        # (81, 2)
                 features["king_distance"],     # (81, 2)
                 features["piece_value"].unsqueeze(1),  # (81, 1)
                 features["control"].unsqueeze(1),      # (81, 1)
+                features["king_safety"],       # (81, 4)
             ], dim=1)
 
         return result

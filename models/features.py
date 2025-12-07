@@ -181,6 +181,95 @@ def compute_control_map(board: torch.Tensor) -> torch.Tensor:
     return torch.tanh(control / 3.0)
 
 
+def compute_king_safety(board: torch.Tensor) -> torch.Tensor:
+    """玉の安全度特徴を計算.
+
+    各玉について、周囲8マスの状況を評価:
+    - 味方の駒による守り
+    - 敵の利きによる脅威
+    - 逃げ道の数
+
+    Args:
+        board: 盤面テンソル (81,) 駒種ID
+
+    Returns:
+        玉安全度 (81, 4) - 各マスに対して:
+            [0]: 先手玉周辺の味方駒数 (0-8, 正規化)
+            [1]: 先手玉周辺の敵利き数 (0-8+, 正規化)
+            [2]: 後手玉周辺の味方駒数 (0-8, 正規化)
+            [3]: 後手玉周辺の敵利き数 (0-8+, 正規化)
+    """
+    safety_map = torch.zeros(81, 4, dtype=torch.float32)
+
+    # 王の位置を探す
+    black_king_idx = None
+    white_king_idx = None
+
+    for idx in range(81):
+        piece_id = board[idx].item()
+        if piece_id == 8:  # 先手王
+            black_king_idx = idx
+        elif piece_id == 22:  # 後手王
+            white_king_idx = idx
+
+    # 利きマップを取得
+    attack_map = compute_attack_map(board)
+
+    # 周囲8方向
+    directions = [(-1, -1), (0, -1), (1, -1),
+                  (-1, 0),          (1, 0),
+                  (-1, 1),  (0, 1), (1, 1)]
+
+    # 先手玉の安全度を計算
+    if black_king_idx is not None:
+        king_row, king_col = black_king_idx // 9, black_king_idx % 9
+        friend_count = 0
+        enemy_attacks = 0
+        escape_squares = 0
+
+        for dx, dy in directions:
+            nx, ny = king_col + dx, king_row + dy
+            if 0 <= nx < 9 and 0 <= ny < 9:
+                target_idx = ny * 9 + nx
+                piece_id = board[target_idx].item()
+
+                # 味方の駒（先手: 1-14）
+                if 1 <= piece_id <= 14:
+                    friend_count += 1
+                # 敵の利き
+                enemy_attacks += attack_map[target_idx, 1].item()
+                # 逃げ道（空きマスで敵の利きがない）
+                if piece_id == 0 and attack_map[target_idx, 1].item() == 0:
+                    escape_squares += 1
+
+        # 全マスに同じ値を設定（グローバル特徴として）
+        safety_map[:, 0] = friend_count / 8.0
+        safety_map[:, 1] = min(enemy_attacks / 8.0, 1.0)
+
+    # 後手玉の安全度を計算
+    if white_king_idx is not None:
+        king_row, king_col = white_king_idx // 9, white_king_idx % 9
+        friend_count = 0
+        enemy_attacks = 0
+
+        for dx, dy in directions:
+            nx, ny = king_col + dx, king_row + dy
+            if 0 <= nx < 9 and 0 <= ny < 9:
+                target_idx = ny * 9 + nx
+                piece_id = board[target_idx].item()
+
+                # 味方の駒（後手: 15-28）
+                if 15 <= piece_id <= 28:
+                    friend_count += 1
+                # 敵の利き
+                enemy_attacks += attack_map[target_idx, 0].item()
+
+        safety_map[:, 2] = friend_count / 8.0
+        safety_map[:, 3] = min(enemy_attacks / 8.0, 1.0)
+
+    return safety_map
+
+
 def compute_all_features(board: torch.Tensor) -> dict[str, torch.Tensor]:
     """全ての拡張特徴量を計算.
 
@@ -189,14 +278,16 @@ def compute_all_features(board: torch.Tensor) -> dict[str, torch.Tensor]:
 
     Returns:
         特徴量辞書:
-            - attack_map: (81, 2) 利きマップ
+            - attack_map: (81, 2) 利きマップ（利き数）
             - king_distance: (81, 2) 王距離マップ
             - piece_value: (81,) 駒価値マップ
             - control: (81,) 支配度マップ
+            - king_safety: (81, 4) 玉安全度マップ
     """
     return {
         "attack_map": compute_attack_map(board),
         "king_distance": compute_king_distance(board),
         "piece_value": compute_piece_value_map(board),
         "control": compute_control_map(board),
+        "king_safety": compute_king_safety(board),
     }

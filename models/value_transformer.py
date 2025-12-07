@@ -40,8 +40,8 @@ MAX_HAND_PIECES = {
 HAND_TOKENS = 14
 
 # 拡張特徴量の次元数
-# [attack_black, attack_white, king_dist_black, king_dist_white, piece_value, control]
-FEATURE_DIM = 6
+# [attack(2), king_dist(2), piece_value(1), control(1), king_safety(4)]
+FEATURE_DIM = 10
 
 
 class PositionalEncoding(nn.Module):

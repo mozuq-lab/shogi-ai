@@ -94,6 +94,7 @@ class Evaluator:
                 feat_dict["king_distance"],
                 feat_dict["piece_value"].unsqueeze(1),
                 feat_dict["control"].unsqueeze(1),
+                feat_dict["king_safety"],
             ], dim=1).unsqueeze(0).to(self.device)
 
         # 推論
