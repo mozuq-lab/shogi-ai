@@ -42,7 +42,8 @@ shogi-ai/
 │   ├── __init__.py
 │   ├── value_transformer.py  # Transformerモデル
 │   ├── sfen_parser.py        # SFENパーサー
-│   └── dataset.py            # PyTorch Dataset
+│   ├── dataset.py            # PyTorch Dataset
+│   └── features.py           # 拡張特徴量（利き、玉距離等）
 ├── tests/                  # テスト ✓
 │   └── test_models.py
 ├── data/raw/               # 生成データ (.gitignore対象)
@@ -175,6 +176,27 @@ output = model(batch["board"], batch["hand"], batch["turn"])  # (batch, 1), [-1,
 - 持ち駒は駒種埋め込み + 枚数埋め込み
 - 手番埋め込みを全トークンに加算
 
+#### 拡張特徴量（オプション）
+
+`--use-features` フラグで有効化。各マスに6次元の追加特徴量を付与：
+
+| 特徴量 | 次元 | 説明 |
+|--------|------|------|
+| attack_map | 2 | 先手/後手の利き（0/1） |
+| king_distance | 2 | 先手玉/後手玉からのチェビシェフ距離 |
+| piece_value | 1 | 駒価値（先手+、後手-） |
+| control | 1 | 支配度（利きの差をtanh正規化） |
+
+```python
+# 拡張特徴量を使用したモデル
+model = ValueTransformer(use_features=True)
+
+# 拡張特徴量を使用した学習
+PYTHONPATH=. python train/train.py --data data.jsonl --use-features
+```
+
+検証結果: val_loss 0.228→0.178（約22%改善、3エポック学習）
+
 #### 出力
 
 - スカラー値 [-1, 1]（勝率近似、tanh正規化）
@@ -224,6 +246,7 @@ PYTHONPATH=. python train/train.py \
 | `--output-dir` | checkpoints | 出力ディレクトリ |
 | `--resume` | - | 再開するチェックポイント |
 | `--val-split` | 0.1 | 検証データ割合 |
+| `--use-features` | - | 拡張特徴量を使用 |
 
 #### 出力ファイル
 

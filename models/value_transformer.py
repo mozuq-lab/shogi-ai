@@ -39,6 +39,10 @@ MAX_HAND_PIECES = {
 # 持ち駒トークン数（先手7種 + 後手7種 = 14）
 HAND_TOKENS = 14
 
+# 拡張特徴量の次元数
+# [attack_black, attack_white, king_dist_black, king_dist_white, piece_value, control]
+FEATURE_DIM = 6
+
 
 class PositionalEncoding(nn.Module):
     """固定の正弦波位置エンコーディング."""
@@ -78,6 +82,7 @@ class ValueTransformer(nn.Module):
         n_layers: Transformerレイヤー数
         ffn_dim: FFNの中間次元数
         dropout: ドロップアウト率
+        use_features: 拡張特徴量を使用するかどうか
     """
 
     def __init__(
@@ -87,13 +92,19 @@ class ValueTransformer(nn.Module):
         n_layers: int = 4,
         ffn_dim: int = 512,
         dropout: float = 0.1,
+        use_features: bool = False,
     ) -> None:
         super().__init__()
 
         self.d_model = d_model
+        self.use_features = use_features
 
         # 駒種埋め込み（盤上の駒用）
         self.piece_embedding = nn.Embedding(PIECE_TYPES, d_model)
+
+        # 拡張特徴量の線形変換（use_features=True時のみ使用）
+        if use_features:
+            self.feature_linear = nn.Linear(FEATURE_DIM, d_model)
 
         # 持ち駒埋め込み（持ち駒種 × 持ち駒数の特徴量）
         # 各持ち駒種に対して、枚数を連続値として扱う
@@ -142,6 +153,7 @@ class ValueTransformer(nn.Module):
         board: torch.Tensor,
         hand: torch.Tensor,
         turn: torch.Tensor,
+        features: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """順伝播.
 
@@ -149,6 +161,7 @@ class ValueTransformer(nn.Module):
             board: 盤面の駒配置 (batch, 81) - 駒種ID
             hand: 持ち駒の枚数 (batch, 14) - 各持ち駒種の枚数
             turn: 手番 (batch,) - 0:先手, 1:後手
+            features: 拡張特徴量 (batch, 81, 6) - use_features=True時のみ使用
 
         Returns:
             評価値 (batch, 1) - [-1, 1]の範囲
@@ -157,6 +170,11 @@ class ValueTransformer(nn.Module):
 
         # 盤面トークンの埋め込み
         board_emb = self.piece_embedding(board)  # (batch, 81, d_model)
+
+        # 拡張特徴量を追加
+        if self.use_features and features is not None:
+            feature_emb = self.feature_linear(features)  # (batch, 81, d_model)
+            board_emb = board_emb + feature_emb
 
         # 持ち駒トークンの埋め込み
         hand_type_idx = torch.arange(HAND_TOKENS, device=board.device)

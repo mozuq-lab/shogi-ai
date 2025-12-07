@@ -73,6 +73,9 @@ class TrainConfig:
     # 再開
     resume: str | None = None
 
+    # 拡張特徴量
+    use_features: bool = False
+
 
 @dataclass
 class TrainState:
@@ -147,6 +150,7 @@ def train_epoch(
     device: torch.device,
     state: TrainState,
     log_every: int,
+    use_features: bool = False,
 ) -> float:
     """1エポック学習."""
     model.train()
@@ -158,9 +162,12 @@ def train_epoch(
         hand = batch["hand"].to(device)
         turn = batch["turn"].to(device)
         target = batch["value"].to(device).unsqueeze(1)
+        features = batch.get("features")
+        if features is not None:
+            features = features.to(device)
 
         optimizer.zero_grad()
-        output = model(board, hand, turn)
+        output = model(board, hand, turn, features)
         loss = nn.functional.mse_loss(output, target)
         loss.backward()
         optimizer.step()
@@ -182,6 +189,7 @@ def validate(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
+    use_features: bool = False,
 ) -> float:
     """バリデーション."""
     model.eval()
@@ -193,8 +201,11 @@ def validate(
         hand = batch["hand"].to(device)
         turn = batch["turn"].to(device)
         target = batch["value"].to(device).unsqueeze(1)
+        features = batch.get("features")
+        if features is not None:
+            features = features.to(device)
 
-        output = model(board, hand, turn)
+        output = model(board, hand, turn, features)
         loss = nn.functional.mse_loss(output, target)
 
         total_loss += loss.item()
@@ -211,7 +222,12 @@ def train(config: TrainConfig) -> None:
 
     # データセット
     logger.info(f"Loading dataset: {config.data_path}")
-    dataset = ShogiValueDataset(config.data_path, cp_scale=config.cp_scale)
+    logger.info(f"Use features: {config.use_features}")
+    dataset = ShogiValueDataset(
+        config.data_path,
+        cp_scale=config.cp_scale,
+        use_features=config.use_features,
+    )
     logger.info(f"Dataset size: {len(dataset)}")
 
     # 訓練/検証分割
@@ -249,6 +265,7 @@ def train(config: TrainConfig) -> None:
         n_layers=config.n_layers,
         ffn_dim=config.ffn_dim,
         dropout=config.dropout,
+        use_features=config.use_features,
     ).to(device)
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -297,12 +314,13 @@ def train(config: TrainConfig) -> None:
 
         # 学習
         train_loss = train_epoch(
-            model, train_loader, optimizer, device, state, config.log_every
+            model, train_loader, optimizer, device, state, config.log_every,
+            use_features=config.use_features,
         )
         state.train_losses.append(train_loss)
 
         # バリデーション
-        val_loss = validate(model, val_loader, device)
+        val_loss = validate(model, val_loader, device, use_features=config.use_features)
         state.val_losses.append(val_loss)
 
         # スケジューラ更新（warmup後）
@@ -372,6 +390,9 @@ def main() -> None:
     parser.add_argument("--ffn-dim", type=int, default=512, help="FFN次元")
     parser.add_argument("--dropout", type=float, default=0.1, help="ドロップアウト率")
 
+    # 拡張特徴量
+    parser.add_argument("--use-features", action="store_true", help="拡張特徴量を使用")
+
     args = parser.parse_args()
 
     config = TrainConfig(
@@ -390,6 +411,7 @@ def main() -> None:
         n_layers=args.n_layers,
         ffn_dim=args.ffn_dim,
         dropout=args.dropout,
+        use_features=args.use_features,
     )
 
     train(config)
