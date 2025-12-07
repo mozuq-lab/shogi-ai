@@ -195,7 +195,16 @@ model = ValueTransformer(use_features=True)
 PYTHONPATH=. python train/train.py --data data.jsonl --use-features
 ```
 
-検証結果: val_loss 0.228→0.178（約22%改善、3エポック学習）
+### 勝敗補助損失
+
+モデルは評価値に加えて勝率予測も出力。学習時に補助損失として使用：
+
+```bash
+# 補助損失の重みを調整（デフォルト: 0.1）
+PYTHONPATH=. python train/train.py --data data.jsonl --aux-loss-weight 0.2
+```
+
+損失 = MSE(評価値) + weight × BCE(勝率)
 
 #### 出力
 
@@ -247,6 +256,7 @@ PYTHONPATH=. python train/train.py \
 | `--resume` | - | 再開するチェックポイント |
 | `--val-split` | 0.1 | 検証データ割合 |
 | `--use-features` | - | 拡張特徴量を使用 |
+| `--aux-loss-weight` | 0.1 | 勝敗補助損失の重み |
 
 #### 出力ファイル
 
