@@ -56,7 +56,8 @@ shogi-ai/
 │   ├── evaluator.py        # モデル評価器
 │   └── usi_server.py       # USIプロトコルサーバー
 ├── scripts/
-│   └── usi_test.py         # USI疎通確認スクリプト ✓
+│   ├── usi_test.py         # USI疎通確認スクリプト ✓
+│   └── to_kif.py           # KIF形式変換スクリプト ✓
 ├── env/
 │   └── README.md           # セットアップ手順
 └── reports/                # 評価レポート
@@ -151,6 +152,36 @@ python tools/gen_dataset.py -n 100 --weak-side alternate --weak-prob 0.3 --worke
 | `ply` | 手数 |
 | `game_id` | 対局ID |
 | `result` | 対局結果 (`black_win`, `white_win`, `draw`) |
+
+### KIF形式変換スクリプト (`scripts/to_kif.py`)
+
+JSONLファイルからKIF形式の棋譜ファイルを生成する。評価値をShogiGUI互換形式でコメントとして埋め込む。
+
+```bash
+# 棋譜をKIF形式で表示
+python scripts/to_kif.py data/raw/dataset.jsonl 0
+
+# ファイルに出力
+python scripts/to_kif.py data/raw/dataset.jsonl 0 -o game0.kif
+
+# 評価値なしで出力
+python scripts/to_kif.py data/raw/dataset.jsonl 0 --no-scores
+
+# 対局一覧を表示
+python scripts/to_kif.py data/raw/dataset.jsonl --list
+```
+
+#### 出力例
+
+```
+手数----指手----
+   1 ▲２六歩
+**解析  評価値 112
+   2 △３四歩
+**解析  評価値 127
+```
+
+評価値はShogiGUI形式（`**解析  評価値 数値`）で出力され、ShogiGUIでグラフ表示が可能。
 
 ## 水匠5の使い方
 

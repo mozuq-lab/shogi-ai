@@ -49,6 +49,16 @@ PYTHONPATH=. python train/train.py \
 ```bash
 # 水匠5で自己対局データを生成
 python tools/gen_dataset.py -n 100 --depth 10 -o data/raw/dataset.jsonl
+
+# 弱いAIとの対局データ生成
+python tools/gen_dataset.py -n 100 --weak-side white --weak-prob 0.3 --random-opening 0
+```
+
+### 棋譜確認（KIF形式変換）
+
+```bash
+# 対局をKIF形式で出力（ShogiGUIで評価値グラフ表示可能）
+python scripts/to_kif.py data/raw/dataset.jsonl 0 -o game0.kif
 ```
 
 ### USIエンジンとして使用

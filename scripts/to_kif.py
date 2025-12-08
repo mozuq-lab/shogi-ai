@@ -71,24 +71,27 @@ def move_to_kif(board: shogi.Board, move: shogi.Move) -> str:
     return result
 
 
-def load_game_from_jsonl(jsonl_path: str, game_id: int) -> dict | None:
+def load_game_from_jsonl(jsonl_path: str, game_id: int) -> tuple[dict | None, dict[int, int]]:
     """Load a game from JSONL file.
 
-    Returns the entry with the highest ply for the given game_id.
+    Returns:
+        tuple: (entry with highest ply, dict mapping ply -> score_cp)
     """
     best_entry = None
     best_ply = -1
+    scores = {}  # ply -> score_cp
 
     with open(jsonl_path, 'r', encoding='utf-8') as f:
         for line in f:
             entry = json.loads(line.strip())
             if entry.get('game_id') == game_id:
                 ply = entry.get('ply', 0)
+                scores[ply] = entry.get('score_cp', 0)
                 if ply > best_ply:
                     best_ply = ply
                     best_entry = entry
 
-    return best_entry
+    return best_entry, scores
 
 
 def list_games(jsonl_path: str, limit: int = 20) -> list[dict]:
@@ -114,12 +117,21 @@ def list_games(jsonl_path: str, limit: int = 20) -> list[dict]:
     return sorted_games[:limit]
 
 
-def convert_to_kif(entry: dict) -> str:
-    """Convert a game entry to KIF format."""
+def convert_to_kif(entry: dict, scores: dict[int, int] | None = None, show_scores: bool = True) -> str:
+    """Convert a game entry to KIF format.
+
+    Args:
+        entry: Game entry with sfen, result, etc.
+        scores: Optional dict mapping ply -> score_cp
+        show_scores: Whether to show evaluation scores as comments
+    """
     sfen = entry['sfen']
     result = entry['result']
     score_cp = entry['score_cp']
     game_id = entry['game_id']
+
+    if scores is None:
+        scores = {}
 
     # Extract moves from sfen
     if sfen.startswith('startpos moves '):
@@ -158,6 +170,18 @@ def convert_to_kif(entry: dict) -> str:
         lines.append(f'{i+1:4d} {turn}{kif}')
         board.push(move)
 
+        # Add evaluation score as comment (after the move)
+        # scores[i+1] is the evaluation after move i+1 was made
+        # ShogiGUI format: **解析  評価値 数値
+        next_ply = i + 1
+        if show_scores and next_ply in scores:
+            # 評価値は手番側視点（次に指す側）なので、先手視点に統一
+            cp = scores[next_ply]
+            if board.turn == shogi.WHITE:
+                # 次が後手番 = 後手視点の評価値 → 符号反転して先手視点に
+                cp = -cp
+            lines.append(f'**解析  評価値 {cp}')
+
     lines.append(f'{len(moves)+1:4d} 投了')
     lines.append('')
     lines.append(f'まで{len(moves)}手で{result_ja}')
@@ -173,6 +197,7 @@ def main():
 Examples:
   %(prog)s data/raw/hao_depth10_100k.jsonl 1
   %(prog)s data/raw/hao_depth10_100k.jsonl 1 --output game1.kif
+  %(prog)s data/raw/hao_depth10_100k.jsonl 1 --no-scores
   %(prog)s data/raw/hao_depth10_100k.jsonl --list
 """
     )
@@ -184,6 +209,8 @@ Examples:
                         help='List available games')
     parser.add_argument('--list-limit', type=int, default=20,
                         help='Number of games to list (default: 20)')
+    parser.add_argument('--no-scores', action='store_true',
+                        help='Do not include evaluation scores in output')
 
     args = parser.parse_args()
 
@@ -198,13 +225,13 @@ Examples:
     if args.game_id is None:
         parser.error("game_id is required (or use --list to see available games)")
 
-    entry = load_game_from_jsonl(args.jsonl_file, args.game_id)
+    entry, scores = load_game_from_jsonl(args.jsonl_file, args.game_id)
 
     if entry is None:
         print(f"Error: game_id={args.game_id} not found in {args.jsonl_file}")
         return
 
-    kif_content = convert_to_kif(entry)
+    kif_content = convert_to_kif(entry, scores, show_scores=not args.no_scores)
 
     if args.output:
         with open(args.output, 'w', encoding='utf-8') as f:
