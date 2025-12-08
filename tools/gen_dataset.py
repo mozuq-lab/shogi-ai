@@ -2,12 +2,14 @@
 """教師データ生成スクリプト
 
 水匠5同士の自己対局を行い、各局面の評価値を収集する。
+弱いAIとの対局データ生成にも対応。
 """
 
 from __future__ import annotations
 
 import json
 import argparse
+import random
 import sys
 import os
 from pathlib import Path
@@ -15,6 +17,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+import shogi
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -43,6 +47,8 @@ class SelfPlayGenerator:
         max_ply: int = 256,
         use_book: bool = False,
         random_opening_ply: int = 0,
+        weak_side: Optional[str] = None,
+        weak_prob: float = 0.5,
     ):
         """
         Args:
@@ -52,6 +58,8 @@ class SelfPlayGenerator:
             max_ply: 最大手数
             use_book: 定跡使用
             random_opening_ply: 序盤のランダム手数（0の場合はランダム化しない）
+            weak_side: 弱い側 ("black", "white", "alternate", None)
+            weak_prob: 弱い側がランダム手を指す確率 (0.0〜1.0)
         """
         self.engine_path = engine_path
         self.depth = depth
@@ -59,10 +67,53 @@ class SelfPlayGenerator:
         self.max_ply = max_ply
         self.use_book = use_book
         self.random_opening_ply = random_opening_ply
+        self.weak_side = weak_side
+        self.weak_prob = weak_prob
 
         # depthとmovetimeのどちらも指定されていない場合はdepth=10をデフォルトに
         if self.depth is None and self.movetime is None:
             self.depth = 10
+
+    def _is_weak_turn(self, ply: int, game_id: int) -> bool:
+        """このターンが弱い側の手番かどうかを判定
+
+        Args:
+            ply: 現在の手数（0始まり、偶数=先手、奇数=後手）
+            game_id: 対局ID（alternateモードで使用）
+
+        Returns:
+            弱い側の手番ならTrue
+        """
+        if self.weak_side is None:
+            return False
+        elif self.weak_side == "black":
+            return ply % 2 == 0  # 先手（偶数手）
+        elif self.weak_side == "white":
+            return ply % 2 == 1  # 後手（奇数手）
+        elif self.weak_side == "alternate":
+            # 対局ごとに弱い側を交互に変える
+            return (ply + game_id) % 2 == 0
+        return False
+
+    def _get_random_move(self, moves: list[str]) -> str | None:
+        """python-shogiを使ってランダムな合法手を取得
+
+        Args:
+            moves: これまでの指し手リスト（USI形式）
+
+        Returns:
+            ランダムに選ばれた合法手（USI形式）、合法手がなければNone
+        """
+        board = shogi.Board()
+        for move_usi in moves:
+            board.push_usi(move_usi)
+
+        legal_moves = list(board.legal_moves)
+        if not legal_moves:
+            return None
+
+        random_move = random.choice(legal_moves)
+        return random_move.usi()
 
     def play_game(self, game_id: int) -> list[PositionRecord]:
         """1対局を行い、局面データを収集
@@ -88,11 +139,37 @@ class SelfPlayGenerator:
                 # 局面を設定
                 engine.set_position(moves=moves if moves else None)
 
-                # 探索（序盤はランダム、それ以降は通常探索）
-                if ply < self.random_opening_ply:
-                    search_result = engine.go_random()
+                is_weak_turn = self._is_weak_turn(ply, game_id)
+
+                # 手の決定ロジック:
+                # - weak_sideが設定されている場合:
+                #   - 強い側: random_opening内はランダム、それ以降は通常探索
+                #   - 弱い側: 全局面でweak_probに従ってランダム手を選択
+                # - weak_sideが設定されていない場合:
+                #   - 両側: random_opening内はランダム、それ以降は通常探索
+
+                if self.weak_side is not None:
+                    # weak_sideモード: 弱い側と強い側で別の処理
+                    if is_weak_turn:
+                        # 弱い側: 常に強い探索で評価値を取得
+                        search_result = engine.go(depth=self.depth, movetime=self.movetime)
+                        # 確率に従ってランダム手に置き換え
+                        if random.random() < self.weak_prob:
+                            random_move = self._get_random_move(moves)
+                            if random_move is not None:
+                                search_result.bestmove = random_move
+                    else:
+                        # 強い側: 序盤はランダム（多様性のため）、それ以降は通常探索
+                        if ply < self.random_opening_ply:
+                            search_result = engine.go_random()
+                        else:
+                            search_result = engine.go(depth=self.depth, movetime=self.movetime)
                 else:
-                    search_result = engine.go(depth=self.depth, movetime=self.movetime)
+                    # 通常モード: 両側とも同じ処理
+                    if ply < self.random_opening_ply:
+                        search_result = engine.go_random()
+                    else:
+                        search_result = engine.go(depth=self.depth, movetime=self.movetime)
 
                 # 投了チェック
                 if search_result.bestmove in ("resign", "win"):
@@ -161,12 +238,14 @@ def _play_game_worker(args: tuple) -> list[dict]:
     """ワーカープロセスで1対局を実行
 
     Args:
-        args: (game_id, engine_path, depth, movetime, max_ply, use_book, random_opening_ply)
+        args: (game_id, engine_path, depth, movetime, max_ply, use_book,
+               random_opening_ply, weak_side, weak_prob)
 
     Returns:
         局面レコードのリスト（辞書形式）
     """
-    game_id, engine_path, depth, movetime, max_ply, use_book, random_opening_ply = args
+    (game_id, engine_path, depth, movetime, max_ply, use_book,
+     random_opening_ply, weak_side, weak_prob) = args
 
     generator = SelfPlayGenerator(
         engine_path=Path(engine_path),
@@ -175,6 +254,8 @@ def _play_game_worker(args: tuple) -> list[dict]:
         max_ply=max_ply,
         use_book=use_book,
         random_opening_ply=random_opening_ply,
+        weak_side=weak_side,
+        weak_prob=weak_prob,
     )
 
     try:
@@ -195,6 +276,8 @@ def generate_dataset_parallel(
     use_book: bool = False,
     random_opening_ply: int = 0,
     num_workers: int = 4,
+    weak_side: Optional[str] = None,
+    weak_prob: float = 0.5,
 ) -> int:
     """データセットを並列生成
 
@@ -208,6 +291,8 @@ def generate_dataset_parallel(
         use_book: 定跡使用
         random_opening_ply: 序盤のランダム手数
         num_workers: ワーカー数
+        weak_side: 弱い側 ("black", "white", "alternate", None)
+        weak_prob: 弱い側がランダム手を指す確率
 
     Returns:
         生成した局面数
@@ -216,7 +301,8 @@ def generate_dataset_parallel(
 
     # ワーカーへの引数を準備
     worker_args = [
-        (game_id, str(engine_path), depth, movetime, max_ply, use_book, random_opening_ply)
+        (game_id, str(engine_path), depth, movetime, max_ply, use_book,
+         random_opening_ply, weak_side, weak_prob)
         for game_id in range(num_games)
     ]
 
@@ -256,6 +342,8 @@ def generate_dataset(
     max_ply: int = 256,
     use_book: bool = False,
     random_opening_ply: int = 0,
+    weak_side: Optional[str] = None,
+    weak_prob: float = 0.5,
 ) -> int:
     """データセットを生成
 
@@ -268,6 +356,8 @@ def generate_dataset(
         max_ply: 最大手数
         use_book: 定跡使用
         random_opening_ply: 序盤のランダム手数
+        weak_side: 弱い側 ("black", "white", "alternate", None)
+        weak_prob: 弱い側がランダム手を指す確率
 
     Returns:
         生成した局面数
@@ -279,6 +369,8 @@ def generate_dataset(
         max_ply=max_ply,
         use_book=use_book,
         random_opening_ply=random_opening_ply,
+        weak_side=weak_side,
+        weak_prob=weak_prob,
     )
 
     total_positions = 0
@@ -316,6 +408,10 @@ def main():
     parser.add_argument("--engine", type=str, default=None, help="エンジンパス（直接指定）")
     parser.add_argument("--engine-type", type=str, default="suisho5", choices=["suisho5", "hao"], help="エンジン種類（デフォルト: suisho5）")
     parser.add_argument("--workers", "-w", type=int, default=1, help="並列ワーカー数（デフォルト: 1）")
+    parser.add_argument("--weak-side", type=str, default=None, choices=["black", "white", "alternate"],
+                        help="弱い側 (black=先手, white=後手, alternate=交互)")
+    parser.add_argument("--weak-prob", type=float, default=0.5,
+                        help="弱い側がランダム手を指す確率 (0.0-1.0, デフォルト: 0.5)")
 
     args = parser.parse_args()
 
@@ -351,6 +447,8 @@ def main():
     print(f"  Use book: {args.use_book}")
     print(f"  Random opening: {args.random_opening} ply")
     print(f"  Workers: {args.workers}")
+    if args.weak_side:
+        print(f"  Weak side: {args.weak_side} (prob={args.weak_prob})")
     print(f"  Output: {output_path}")
     print()
 
@@ -365,6 +463,8 @@ def main():
             use_book=args.use_book,
             random_opening_ply=args.random_opening,
             num_workers=args.workers,
+            weak_side=args.weak_side,
+            weak_prob=args.weak_prob,
         )
     else:
         total = generate_dataset(
@@ -376,6 +476,8 @@ def main():
             max_ply=args.max_ply,
             use_book=args.use_book,
             random_opening_ply=args.random_opening,
+            weak_side=args.weak_side,
+            weak_prob=args.weak_prob,
         )
 
     print(f"\nDone! Total positions: {total}")
