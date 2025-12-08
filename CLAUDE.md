@@ -117,16 +117,17 @@ python tools/gen_dataset.py -n 100 --weak-side alternate --weak-prob 0.3 --worke
 
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
-| `--weak-side` | なし | 弱い側 (`black`=先手, `white`=後手, `alternate`=交互) |
+| `--weak-side` | なし | 弱い側 (`black`=先手, `white`=後手, `alternate`=交互, `both`=両方) |
 | `--weak-prob` | 0.5 | 弱い側がランダム手を指す確率 (0.0〜1.0) |
 | `--random-opening` | 32 | 序盤のランダム手数（多様性のため） |
 
 **動作の違い：**
 
 - `--weak-side`なし: 両側とも`--random-opening`手数だけランダム、以降は通常探索
-- `--weak-side`あり:
+- `--weak-side black/white/alternate`:
   - 強い側: `--random-opening`手数だけランダム（多様性）、以降は通常探索
   - 弱い側: 全局面で`--weak-prob`に従ってランダム手を選択
+- `--weak-side both`: 両側とも`--weak-prob`に従ってランダム手を選択（評価値は正確に記録）
 
 ※ 評価値は常に強いAI（深い探索）から取得されるため、正確なラベルが付与される。
 

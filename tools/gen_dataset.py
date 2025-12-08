@@ -93,6 +93,8 @@ class SelfPlayGenerator:
         elif self.weak_side == "alternate":
             # 対局ごとに弱い側を交互に変える
             return (ply + game_id) % 2 == 0
+        elif self.weak_side == "both":
+            return True  # 両側とも弱い
         return False
 
     def _get_random_move(self, moves: list[str]) -> str | None:
@@ -408,8 +410,8 @@ def main():
     parser.add_argument("--engine", type=str, default=None, help="エンジンパス（直接指定）")
     parser.add_argument("--engine-type", type=str, default="suisho5", choices=["suisho5", "hao"], help="エンジン種類（デフォルト: suisho5）")
     parser.add_argument("--workers", "-w", type=int, default=1, help="並列ワーカー数（デフォルト: 1）")
-    parser.add_argument("--weak-side", type=str, default=None, choices=["black", "white", "alternate"],
-                        help="弱い側 (black=先手, white=後手, alternate=交互)")
+    parser.add_argument("--weak-side", type=str, default=None, choices=["black", "white", "alternate", "both"],
+                        help="弱い側 (black=先手, white=後手, alternate=交互, both=両方)")
     parser.add_argument("--weak-prob", type=float, default=0.5,
                         help="弱い側がランダム手を指す確率 (0.0-1.0, デフォルト: 0.5)")
 
