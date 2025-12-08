@@ -120,6 +120,14 @@ python tools/gen_dataset.py -n 100 --weak-side alternate --weak-prob 0.3 --worke
 | `--weak-side` | なし | 弱い側 (`black`=先手, `white`=後手, `alternate`=交互, `both`=両方) |
 | `--weak-prob` | 0.5 | 弱い側がランダム手を指す確率 (0.0〜1.0) |
 | `--random-opening` | 32 | 序盤のランダム手数（多様性のため） |
+| `--random-type` | `full` | ランダム手の生成方式 (`engine`=go random, `full`=完全ランダム) |
+
+**ランダム手生成方式の違い：**
+
+| 方式 | コマンド | 評価値 | 特徴 |
+|------|---------|--------|------|
+| engine | `go random` | なし（0になる） | エンジン内蔵のランダム、高速 |
+| full | 通常探索後に手を差し替え | あり | 全ての局面で評価値を記録 |
 
 **動作の違い：**
 
@@ -129,7 +137,8 @@ python tools/gen_dataset.py -n 100 --weak-side alternate --weak-prob 0.3 --worke
   - 弱い側: 全局面で`--weak-prob`に従ってランダム手を選択
 - `--weak-side both`: 両側とも`--weak-prob`に従ってランダム手を選択（評価値は正確に記録）
 
-※ 評価値は常に強いAI（深い探索）から取得されるため、正確なラベルが付与される。
+※ `--random-type full`（デフォルト）を使用すると、序盤のランダム手でも評価値が記録される。
+※ 評価値は常に深い探索から取得されるため、正確なラベルが付与される。
 
 #### エンジン選択
 

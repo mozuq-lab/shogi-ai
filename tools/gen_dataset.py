@@ -47,6 +47,7 @@ class SelfPlayGenerator:
         max_ply: int = 256,
         use_book: bool = False,
         random_opening_ply: int = 0,
+        random_type: str = "full",
         weak_side: Optional[str] = None,
         weak_prob: float = 0.5,
     ):
@@ -58,6 +59,7 @@ class SelfPlayGenerator:
             max_ply: 最大手数
             use_book: 定跡使用
             random_opening_ply: 序盤のランダム手数（0の場合はランダム化しない）
+            random_type: ランダム手の生成方式 ("engine"=go random, "full"=完全ランダム)
             weak_side: 弱い側 ("black", "white", "alternate", None)
             weak_prob: 弱い側がランダム手を指す確率 (0.0〜1.0)
         """
@@ -67,6 +69,7 @@ class SelfPlayGenerator:
         self.max_ply = max_ply
         self.use_book = use_book
         self.random_opening_ply = random_opening_ply
+        self.random_type = random_type
         self.weak_side = weak_side
         self.weak_prob = weak_prob
 
@@ -144,34 +147,35 @@ class SelfPlayGenerator:
                 is_weak_turn = self._is_weak_turn(ply, game_id)
 
                 # 手の決定ロジック:
-                # - weak_sideが設定されている場合:
-                #   - 強い側: random_opening内はランダム、それ以降は通常探索
-                #   - 弱い側: 全局面でweak_probに従ってランダム手を選択
-                # - weak_sideが設定されていない場合:
-                #   - 両側: random_opening内はランダム、それ以降は通常探索
+                # - random_opening期間中:
+                #   - random_type=="engine": go_random()使用（評価値なし）
+                #   - random_type=="full": 探索後に完全ランダム手で置換（評価値あり）
+                # - random_opening後 + weak_side設定時:
+                #   - 弱い側: weak_probに従ってランダム手
+                #   - 強い側: 通常探索
+                # - random_opening後 + weak_side未設定:
+                #   - 両側: 通常探索
 
-                if self.weak_side is not None:
-                    # weak_sideモード: 弱い側と強い側で別の処理
-                    if is_weak_turn:
-                        # 弱い側: 常に強い探索で評価値を取得
-                        search_result = engine.go(depth=self.depth, movetime=self.movetime)
-                        # 確率に従ってランダム手に置き換え
+                use_random_opening = ply < self.random_opening_ply
+
+                if use_random_opening and self.random_type == "engine":
+                    # エンジンのgo random使用（評価値なし）
+                    search_result = engine.go_random()
+                else:
+                    # 通常探索で評価値を取得
+                    search_result = engine.go(depth=self.depth, movetime=self.movetime)
+
+                    if use_random_opening and self.random_type == "full":
+                        # 完全ランダム手で置換（評価値は維持）
+                        random_move = self._get_random_move(moves)
+                        if random_move is not None:
+                            search_result.bestmove = random_move
+                    elif self.weak_side is not None and is_weak_turn:
+                        # 弱い側: 確率に従ってランダム手で置換
                         if random.random() < self.weak_prob:
                             random_move = self._get_random_move(moves)
                             if random_move is not None:
                                 search_result.bestmove = random_move
-                    else:
-                        # 強い側: 序盤はランダム（多様性のため）、それ以降は通常探索
-                        if ply < self.random_opening_ply:
-                            search_result = engine.go_random()
-                        else:
-                            search_result = engine.go(depth=self.depth, movetime=self.movetime)
-                else:
-                    # 通常モード: 両側とも同じ処理
-                    if ply < self.random_opening_ply:
-                        search_result = engine.go_random()
-                    else:
-                        search_result = engine.go(depth=self.depth, movetime=self.movetime)
 
                 # 投了チェック
                 if search_result.bestmove in ("resign", "win"):
@@ -241,13 +245,13 @@ def _play_game_worker(args: tuple) -> list[dict]:
 
     Args:
         args: (game_id, engine_path, depth, movetime, max_ply, use_book,
-               random_opening_ply, weak_side, weak_prob)
+               random_opening_ply, random_type, weak_side, weak_prob)
 
     Returns:
         局面レコードのリスト（辞書形式）
     """
     (game_id, engine_path, depth, movetime, max_ply, use_book,
-     random_opening_ply, weak_side, weak_prob) = args
+     random_opening_ply, random_type, weak_side, weak_prob) = args
 
     generator = SelfPlayGenerator(
         engine_path=Path(engine_path),
@@ -256,6 +260,7 @@ def _play_game_worker(args: tuple) -> list[dict]:
         max_ply=max_ply,
         use_book=use_book,
         random_opening_ply=random_opening_ply,
+        random_type=random_type,
         weak_side=weak_side,
         weak_prob=weak_prob,
     )
@@ -277,6 +282,7 @@ def generate_dataset_parallel(
     max_ply: int = 256,
     use_book: bool = False,
     random_opening_ply: int = 0,
+    random_type: str = "full",
     num_workers: int = 4,
     weak_side: Optional[str] = None,
     weak_prob: float = 0.5,
@@ -292,6 +298,7 @@ def generate_dataset_parallel(
         max_ply: 最大手数
         use_book: 定跡使用
         random_opening_ply: 序盤のランダム手数
+        random_type: ランダム手の生成方式 ("engine" or "full")
         num_workers: ワーカー数
         weak_side: 弱い側 ("black", "white", "alternate", None)
         weak_prob: 弱い側がランダム手を指す確率
@@ -304,7 +311,7 @@ def generate_dataset_parallel(
     # ワーカーへの引数を準備
     worker_args = [
         (game_id, str(engine_path), depth, movetime, max_ply, use_book,
-         random_opening_ply, weak_side, weak_prob)
+         random_opening_ply, random_type, weak_side, weak_prob)
         for game_id in range(num_games)
     ]
 
@@ -344,6 +351,7 @@ def generate_dataset(
     max_ply: int = 256,
     use_book: bool = False,
     random_opening_ply: int = 0,
+    random_type: str = "full",
     weak_side: Optional[str] = None,
     weak_prob: float = 0.5,
 ) -> int:
@@ -358,6 +366,7 @@ def generate_dataset(
         max_ply: 最大手数
         use_book: 定跡使用
         random_opening_ply: 序盤のランダム手数
+        random_type: ランダム手の生成方式 ("engine" or "full")
         weak_side: 弱い側 ("black", "white", "alternate", None)
         weak_prob: 弱い側がランダム手を指す確率
 
@@ -371,6 +380,7 @@ def generate_dataset(
         max_ply=max_ply,
         use_book=use_book,
         random_opening_ply=random_opening_ply,
+        random_type=random_type,
         weak_side=weak_side,
         weak_prob=weak_prob,
     )
@@ -407,6 +417,8 @@ def main():
     parser.add_argument("--max-ply", type=int, default=256, help="最大手数")
     parser.add_argument("--use-book", action="store_true", help="定跡使用")
     parser.add_argument("--random-opening", "-r", type=int, default=32, help="序盤のランダム手数（デフォルト: 32）")
+    parser.add_argument("--random-type", type=str, default="full", choices=["engine", "full"],
+                        help="ランダム手の生成方式 (engine=go random, full=完全ランダム, デフォルト: full)")
     parser.add_argument("--engine", type=str, default=None, help="エンジンパス（直接指定）")
     parser.add_argument("--engine-type", type=str, default="suisho5", choices=["suisho5", "hao"], help="エンジン種類（デフォルト: suisho5）")
     parser.add_argument("--workers", "-w", type=int, default=1, help="並列ワーカー数（デフォルト: 1）")
@@ -447,7 +459,7 @@ def main():
         print(f"  Depth: {depth}")
     print(f"  Max ply: {args.max_ply}")
     print(f"  Use book: {args.use_book}")
-    print(f"  Random opening: {args.random_opening} ply")
+    print(f"  Random opening: {args.random_opening} ply (type={args.random_type})")
     print(f"  Workers: {args.workers}")
     if args.weak_side:
         print(f"  Weak side: {args.weak_side} (prob={args.weak_prob})")
@@ -464,6 +476,7 @@ def main():
             max_ply=args.max_ply,
             use_book=args.use_book,
             random_opening_ply=args.random_opening,
+            random_type=args.random_type,
             num_workers=args.workers,
             weak_side=args.weak_side,
             weak_prob=args.weak_prob,
@@ -478,6 +491,7 @@ def main():
             max_ply=args.max_ply,
             use_book=args.use_book,
             random_opening_ply=args.random_opening,
+            random_type=args.random_type,
             weak_side=args.weak_side,
             weak_prob=args.weak_prob,
         )
