@@ -149,13 +149,15 @@ class ValueTransformer(nn.Module):
 
     def _init_weights(self) -> None:
         """重みの初期化."""
+        # 埋め込み層のstdはd_modelに基づいて設定
+        embed_std = 1.0 / math.sqrt(self.d_model)  # d_model=256なら0.0625
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):
-                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                nn.init.normal_(module.weight, mean=0.0, std=embed_std)
 
     def forward(
         self,
@@ -225,7 +227,7 @@ class ValueTransformer(nn.Module):
         return value, outcome
 
 
-def normalize_cp(cp: int, scale: float = 1200.0) -> float:
+def normalize_cp(cp: int, scale: float = 500.0) -> float:
     """centipawnを[-1, 1]に正規化.
 
     Args:
@@ -238,7 +240,7 @@ def normalize_cp(cp: int, scale: float = 1200.0) -> float:
     return math.tanh(cp / scale)
 
 
-def denormalize_cp(value: float, scale: float = 1200.0) -> float:
+def denormalize_cp(value: float, scale: float = 500.0) -> float:
     """[-1, 1]をcentipawnに戻す.
 
     Args:

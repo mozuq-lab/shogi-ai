@@ -170,7 +170,7 @@ class ShogiValueDataset(Dataset):
     def __init__(
         self,
         data_path: str | Path,
-        cp_scale: float = 1200.0,
+        cp_scale: float = 500.0,
         use_features: bool = False,
         cp_noise: float = 0.0,
         cp_filter_threshold: float | None = None,

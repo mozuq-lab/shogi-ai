@@ -462,6 +462,7 @@ def main() -> None:
     parser.add_argument("--label-smoothing", type=float, default=0.05, help="Label Smoothingの強度")
 
     # データ前処理
+    parser.add_argument("--cp-scale", type=float, default=1200.0, help="評価値正規化のスケール（デフォルト: 1200）")
     parser.add_argument("--cp-noise", type=float, default=0.0, help="評価値ノイズの標準偏差（cp）")
     parser.add_argument("--cp-filter-threshold", type=float, default=None, help="評価値フィルタの閾値（cp）")
 
@@ -494,6 +495,7 @@ def main() -> None:
         aux_loss_weight=args.aux_loss_weight,
         grad_clip_norm=args.grad_clip_norm,
         label_smoothing=args.label_smoothing,
+        cp_scale=args.cp_scale,
         cp_noise=args.cp_noise,
         cp_filter_threshold=args.cp_filter_threshold,
         normalize_turn=args.normalize_turn,
