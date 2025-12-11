@@ -83,6 +83,7 @@ class ValueTransformer(nn.Module):
         ffn_dim: FFNの中間次元数
         dropout: ドロップアウト率
         use_features: 拡張特徴量を使用するかどうか
+        use_attention_pooling: Attention Poolingを使用するかどうか（Falseの場合Mean Pooling）
     """
 
     def __init__(
@@ -93,11 +94,13 @@ class ValueTransformer(nn.Module):
         ffn_dim: int = 512,
         dropout: float = 0.1,
         use_features: bool = False,
+        use_attention_pooling: bool = True,
     ) -> None:
         super().__init__()
 
         self.d_model = d_model
         self.use_features = use_features
+        self.use_attention_pooling = use_attention_pooling
 
         # 駒種埋め込み（盤上の駒用）
         self.piece_embedding = nn.Embedding(PIECE_TYPES, d_model)
@@ -128,11 +131,12 @@ class ValueTransformer(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
 
-        # Attention Pooling用のパラメータ
-        # 学習可能なクエリベクトル（「何が重要か」を学習）
-        self.pool_query = nn.Parameter(torch.randn(1, 1, d_model))
-        # Attention計算用の線形層
-        self.pool_key = nn.Linear(d_model, d_model)
+        # Attention Pooling用のパラメータ（use_attention_pooling=True時のみ使用）
+        if use_attention_pooling:
+            # 学習可能なクエリベクトル（「何が重要か」を学習）
+            self.pool_query = nn.Parameter(torch.randn(1, 1, d_model))
+            # Attention計算用の線形層
+            self.pool_key = nn.Linear(d_model, d_model)
 
         # 評価値出力ヘッド
         self.output_head = nn.Sequential(
@@ -167,16 +171,22 @@ class ValueTransformer(nn.Module):
                 nn.init.normal_(module.weight, mean=0.0, std=embed_std)
 
         # Attention Poolingのクエリを初期化
-        nn.init.normal_(self.pool_query, mean=0.0, std=embed_std)
+        if self.use_attention_pooling:
+            nn.init.normal_(self.pool_query, mean=0.0, std=embed_std)
 
-        # 出力層の重みを初期化（広い出力範囲を確保しつつ、Tanh飽和を避ける）
+        # 拡張特徴量の線形層を控えめに初期化（加算後の爆発を防ぐ）
+        if self.use_features:
+            nn.init.normal_(self.feature_linear.weight, mean=0.0, std=0.1)
+            nn.init.zeros_(self.feature_linear.bias)
+
+        # 出力層の重みを初期化（Tanh飽和を避けるため控えめに）
         # output_head: Linear -> GELU -> Dropout -> Linear -> Tanh
-        # std=0.5で初期から[-0.5, 0.5]程度の出力を可能にする
-        nn.init.normal_(self.output_head[3].weight, mean=0.0, std=0.5)
+        # std=0.2で初期から[-0.2, 0.2]程度の出力、飽和を回避
+        nn.init.normal_(self.output_head[3].weight, mean=0.0, std=0.2)
         nn.init.zeros_(self.output_head[3].bias)
 
         # outcome_head: Linear -> GELU -> Dropout -> Linear -> Sigmoid
-        nn.init.normal_(self.outcome_head[3].weight, mean=0.0, std=0.5)
+        nn.init.normal_(self.outcome_head[3].weight, mean=0.0, std=0.2)
         nn.init.zeros_(self.outcome_head[3].bias)
 
     def forward(
@@ -234,16 +244,21 @@ class ValueTransformer(nn.Module):
         # Transformerエンコーダ
         encoded = self.transformer(tokens)  # (batch, 95, d_model)
 
-        # Attention Pooling（学習された重みで加重平均）
-        # Query: 学習可能なベクトル (batch, 1, d_model)
-        query = self.pool_query.expand(batch_size, -1, -1)
-        # Key: 各トークンを変換 (batch, 95, d_model)
-        keys = self.pool_key(encoded)
-        # Attention scores: (batch, 1, 95)
-        attn_scores = torch.bmm(query, keys.transpose(-2, -1)) / math.sqrt(self.d_model)
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-        # 加重平均: (batch, 1, d_model) -> (batch, d_model)
-        pooled = torch.bmm(attn_weights, encoded).squeeze(1)
+        # Pooling
+        if self.use_attention_pooling:
+            # Attention Pooling（学習された重みで加重平均）
+            # Query: 学習可能なベクトル (batch, 1, d_model)
+            query = self.pool_query.expand(batch_size, -1, -1)
+            # Key: 各トークンを変換 (batch, 95, d_model)
+            keys = self.pool_key(encoded)
+            # Attention scores: (batch, 1, 95)
+            attn_scores = torch.bmm(query, keys.transpose(-2, -1)) / math.sqrt(self.d_model)
+            attn_weights = torch.softmax(attn_scores, dim=-1)
+            # 加重平均: (batch, 1, d_model) -> (batch, d_model)
+            pooled = torch.bmm(attn_weights, encoded).squeeze(1)
+        else:
+            # Mean Pooling（単純平均）
+            pooled = encoded.mean(dim=1)  # (batch, d_model)
 
         # 評価値出力
         value = self.output_head(pooled)  # (batch, 1)

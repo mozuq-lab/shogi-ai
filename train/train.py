@@ -76,6 +76,9 @@ class TrainConfig:
     # 拡張特徴量
     use_features: bool = False
 
+    # Pooling方式
+    use_attention_pooling: bool = True
+
     # 勝敗補助損失
     aux_loss_weight: float = 0.1
 
@@ -347,6 +350,7 @@ def train(config: TrainConfig) -> None:
         ffn_dim=config.ffn_dim,
         dropout=config.dropout,
         use_features=config.use_features,
+        use_attention_pooling=config.use_attention_pooling,
     ).to(device)
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -482,6 +486,9 @@ def main() -> None:
     # 拡張特徴量
     parser.add_argument("--use-features", action="store_true", help="拡張特徴量を使用")
 
+    # Pooling方式
+    parser.add_argument("--no-attention-pooling", action="store_true", help="Mean Poolingを使用（デフォルトはAttention Pooling）")
+
     # 補助損失
     parser.add_argument("--aux-loss-weight", type=float, default=0.1, help="勝敗補助損失の重み")
 
@@ -524,6 +531,7 @@ def main() -> None:
         ffn_dim=args.ffn_dim,
         dropout=args.dropout,
         use_features=args.use_features,
+        use_attention_pooling=not args.no_attention_pooling,
         aux_loss_weight=args.aux_loss_weight,
         warmup_epochs=args.warmup_epochs,
         grad_clip_norm=args.grad_clip_norm,
