@@ -94,6 +94,9 @@ class TrainConfig:
     # データローダー
     num_workers: int = 0
 
+    # 分散正則化（出力が定数に崩壊するのを防ぐ）
+    variance_reg_weight: float = 0.1
+
 
 @dataclass
 class TrainState:
@@ -172,6 +175,7 @@ def train_epoch(
     aux_loss_weight: float = 0.1,
     grad_clip_norm: float = 1.0,
     label_smoothing: float = 0.05,
+    variance_reg_weight: float = 0.1,
 ) -> float:
     """1エポック学習."""
     model.train()
@@ -194,15 +198,38 @@ def train_epoch(
         optimizer.zero_grad()
         value, outcome = model(board, hand, turn, features)
 
+        # デバッグ: 最初の数ステップと定期的に形状と値を確認
+        is_debug_step = state.global_step < 5 or state.global_step % 1000 == 0
+        if is_debug_step:
+            current_lr = optimizer.param_groups[0]["lr"]
+            logger.info(f"--- Debug Step {state.global_step} (lr={current_lr:.2e}) ---")
+            logger.info(f"Value: mean={value.mean().item():.4f}, std={value.std().item():.4f}, min={value.min().item():.4f}, max={value.max().item():.4f}")
+            logger.info(f"Target: mean={target_value.mean().item():.4f}, std={target_value.std().item():.4f}")
+
         # 評価値損失（主タスク）
+        # 念のため形状を再確認して強制的に合わせる
+        value = value.view(-1, 1)
+        target_value = target_value.view(-1, 1)
         value_loss = nn.functional.mse_loss(value, target_value)
 
         # 勝敗損失（補助タスク、Label Smoothing適用）
+        outcome = outcome.view(-1, 1)
+        smoothed_outcome = smoothed_outcome.view(-1, 1)
         outcome_loss = nn.functional.binary_cross_entropy(outcome, smoothed_outcome)
 
+        # 分散維持の正則化（定数出力への崩壊を防ぐ）
+        # 出力の標準偏差が小さいとペナルティ（負の項なので最大化される）
+        variance_reg = value.std()
+
         # 合計損失
-        loss = value_loss + aux_loss_weight * outcome_loss
+        # variance_regを引くことで、stdを大きく維持するインセンティブを与える
+        loss = value_loss + aux_loss_weight * outcome_loss - variance_reg_weight * variance_reg
         loss.backward()
+
+        # デバッグ: 勾配の確認
+        if is_debug_step:
+            grad_norm = sum(p.grad.norm() for p in model.parameters() if p.grad is not None)
+            logger.info(f"Total grad norm: {grad_norm:.4f}")
 
         # Gradient Clipping
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
@@ -216,7 +243,7 @@ def train_epoch(
         if state.global_step % log_every == 0:
             logger.info(
                 f"Step {state.global_step}: loss={loss.item():.6f} "
-                f"(value={value_loss.item():.6f}, outcome={outcome_loss.item():.6f})"
+                f"(value={value_loss.item():.6f}, outcome={outcome_loss.item():.6f}, var_reg={variance_reg.item():.4f})"
             )
 
     return total_loss / num_batches
@@ -373,6 +400,7 @@ def train(config: TrainConfig) -> None:
             aux_loss_weight=config.aux_loss_weight,
             grad_clip_norm=config.grad_clip_norm,
             label_smoothing=config.label_smoothing,
+            variance_reg_weight=config.variance_reg_weight,
         )
         state.train_losses.append(train_loss)
 
@@ -458,6 +486,7 @@ def main() -> None:
     parser.add_argument("--aux-loss-weight", type=float, default=0.1, help="勝敗補助損失の重み")
 
     # 学習安定化
+    parser.add_argument("--warmup-epochs", type=int, default=5, help="ウォームアップエポック数")
     parser.add_argument("--grad-clip-norm", type=float, default=1.0, help="勾配クリッピングのmax_norm")
     parser.add_argument("--label-smoothing", type=float, default=0.05, help="Label Smoothingの強度")
 
@@ -472,6 +501,9 @@ def main() -> None:
 
     # データローダー
     parser.add_argument("--num-workers", type=int, default=0, help="データローダーのワーカー数")
+
+    # 分散正則化
+    parser.add_argument("--variance-reg-weight", type=float, default=0.1, help="分散正則化の重み")
 
     args = parser.parse_args()
 
@@ -493,6 +525,7 @@ def main() -> None:
         dropout=args.dropout,
         use_features=args.use_features,
         aux_loss_weight=args.aux_loss_weight,
+        warmup_epochs=args.warmup_epochs,
         grad_clip_norm=args.grad_clip_norm,
         label_smoothing=args.label_smoothing,
         cp_scale=args.cp_scale,
@@ -501,6 +534,7 @@ def main() -> None:
         normalize_turn=args.normalize_turn,
         augment_flip=args.augment_flip,
         num_workers=args.num_workers,
+        variance_reg_weight=args.variance_reg_weight,
     )
 
     train(config)
